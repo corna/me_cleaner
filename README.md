@@ -23,3 +23,6 @@ Current status:
 | Broadwell	| UNTESTED		|
 | Skylake	| SHOULD WORK		|
 
+Special thanks to Federico Amedeo Izzo for his help during the study of Intel
+ME.
+
