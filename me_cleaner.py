@@ -71,20 +71,28 @@ else:
                 f.write(ftpr_header)
                 f.seek(0x14, 0)
                 f.write(pack("<I", 1))
-                f.seek(0x00, 0)
-                checksum_bytes = f.read(0x30)
-                f.seek(0x1b, 0)
+
+                print("Removing EFFS presence flag...")
+                f.seek(0x24, 0)
+                flags = unpack("<I", f.read(4))[0]
+                flags &= ~(0x00000001)
+                f.seek(0x24, 0)
+                f.write(pack("<I", flags))
 
                 print("Correcting checksum...")
                 # The checksum is just the two's complement of the sum of the
                 # first 0x30 bytes (except for 0x1b, the checksum itself). In
                 # other words, the sum of the first 0x30 bytes must be always
                 # 0x00.
+                f.seek(0x00, 0)
+                checksum_bytes = f.read(0x30)
+                f.seek(0x1b, 0)
                 f.write(pack("B", (0x100 -
                              (sum(checksum_bytes) - checksum_bytes[0x1b]) &
                              0xff) & 0xff))
 
-                print("All done! Good luck!")
+                print("Done! The ME code ends at {0} (0x{0:0x}). Good luck!"
+                      .format(ftpr_offset + ftpr_lenght))
 
             else:
                 print("FTPR header not found, this image doesn't seem to be "

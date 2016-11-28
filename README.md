@@ -10,6 +10,7 @@ Currently this tool:
  * Scans the FPT (partition table) and checks that everything is correct
  * Removes any partition entry (except for FTPR) from FPT
  * Removes any partition except for the fundamental one (FTPR)
+ * Removes the EFFS presence flag
  * Corrects the FPT checksum
 
 Current status:
