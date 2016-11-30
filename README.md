@@ -12,6 +12,9 @@ Currently this tool:
  * Removes any partition except for the fundamental one (FTPR)
  * Corrects the FPT checksum
 
+Don't forget to power cycle your PC after flashing the modified ME image (power
+off and power on, not just reboot).
+
 Current status:
 
 | Architecture  | Status		|
