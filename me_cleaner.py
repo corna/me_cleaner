@@ -27,6 +27,30 @@ def fill_range(f, start, end, fill):
     f.writelines(itertools.repeat(block, (end - start) // 4096))
     f.write(fill[:(end - start) % 4096])
 
+def remove_module(f, mod_header, ftpr_offset, lzma_start, lzma_end):
+    name = mod_header[0x04:0x14].decode("ascii")
+    start = unpack("<I", mod_header[0x38:0x3C])[0]
+    size = unpack("<I", mod_header[0x40:0x44])[0]
+    flags = unpack("<I", mod_header[0x50:0x54])[0]
+    comp_type = (flags >> 4) & 7
+
+    if comp_type == 0x00 or comp_type == 0x02:
+        if start >= lzma_start and start + size <= lzma_end:
+            fill_range(f, ftpr_offset + start, ftpr_offset + start + size,
+                       b"\xFF")
+            print(" {:<16}: removed (0x{:0X} - 0x{:0X})"
+                  .format(name, ftpr_offset + start,
+                          ftpr_offset + start + size))
+        else:
+            print(" {:<16}: is outside the LZMA region (module 0x{:0X} - "
+                  "0x{:0X}, LZMA 0x{:0X} - 0x{:0X}), skipping"
+                  .format(name, start, start+size, lzma_start, lzma_end))
+    elif comp_type == 0x01:
+        print(" {:<16}: removal of Huffman modules is not supported yet, "
+              "skipping".format(name))
+    else:
+        print(" {:<16}: unknown compression, skipping".format(name))
+
 if len(sys.argv) != 2 or sys.argv[1] == "-h" or sys.argv[1] == "--help":
     print("Usage: me_cleaner.py me_image.bin")
 else:
@@ -55,8 +79,7 @@ else:
                     break
 
             if ftpr_header != b"":
-                ftpr_offset = unpack("<I", ftpr_header[0x08:0x0C])[0]
-                ftpr_lenght = unpack("<I", ftpr_header[0x0C:0x10])[0]
+                ftpr_offset, ftpr_lenght = unpack("<II", ftpr_header[0x08:0x10])
                 print("Found FTPR header: FTPR partition spans from "
                       "0x{:02x} to 0x{:02x}".format(ftpr_offset,
                                                     ftpr_offset + ftpr_lenght))
@@ -79,6 +102,38 @@ else:
                 f.seek(0x24, 0)
                 f.write(pack("<I", flags))
 
+                print("Reading FTPR modules list...")
+                f.seek(ftpr_offset + 0x1c, 0)
+                if f.read(4) == b"$MN2":
+                    f.seek(ftpr_offset + 0x20, 0)
+                    num_modules = unpack("<I", f.read(4))[0]
+                    f.seek(ftpr_offset + 0x290, 0)
+                    mod_headers = [f.read(0x60) for i in range(0, num_modules)]
+                    
+                    if any(mod_h.startswith(b"$MME") for mod_h in mod_headers):
+                        f.seek(ftpr_offset + 0x18, 0)
+                        size = unpack("<I", f.read(4))[0]
+                        llut_start = ftpr_offset + (size * 4 + 0x3f) & ~0x3f
+
+                        f.seek(llut_start + 0x10, 0)
+                        huff_start, huff_size = unpack("<II", f.read(8))
+                        lzma_start = huff_start + huff_size - ftpr_offset
+
+                        f.seek(llut_start, 0)
+                        if f.read(4) == b"LLUT":
+                            for mod_header in mod_headers:
+                                remove_module(f, mod_header, ftpr_offset,
+                                              lzma_start, ftpr_lenght)
+
+                        else:
+                            print("Can't find the LLUT region in the FTPR "
+                                  "partition")
+                    else:
+                        print("Can't find the $MN2 modules in the FTPR "
+                              "partition")
+                else:
+                    print("Wrong FTPR partition tag ({})")
+
                 print("Correcting checksum...")
                 # The checksum is just the two's complement of the sum of the
                 # first 0x30 bytes (except for 0x1b, the checksum itself). In
@@ -91,8 +146,7 @@ else:
                              (sum(checksum_bytes) - checksum_bytes[0x1b]) &
                              0xff) & 0xff))
 
-                print("Done! The ME code ends at {0} (0x{0:0x}). Good luck!"
-                      .format(ftpr_offset + ftpr_lenght))
+                print("Done! Good luck!")
 
             else:
                 print("FTPR header not found, this image doesn't seem to be "

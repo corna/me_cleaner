@@ -11,6 +11,7 @@ Currently this tool:
  * Removes any partition entry (except for FTPR) from FPT
  * Removes any partition except for the fundamental one (FTPR)
  * Removes the EFFS presence flag
+ * Removes any LZMA-compressed module
  * Corrects the FPT checksum
 
 Current status:
@@ -18,9 +19,9 @@ Current status:
 | Architecture  | Status		|
 |---------------|-----------------------|
 | Nehalem	| DOESN'T WORK (yet)	|
-| Sandy Bridge	| WORKS			|
-| Ivy Bridge	| WORKS			|
+| Sandy Bridge	| UNTESTED		|
+| Ivy Bridge	| UNTESTED		|
 | Haswell	| UNTESTED		|
 | Broadwell	| UNTESTED		|
-| Skylake	| SHOULD WORK		|
+| Skylake	| UNTESTED		|
 
