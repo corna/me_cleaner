@@ -22,9 +22,9 @@ Current status:
 | Nehalem	| DOESN'T WORK (yet)	|
 | Sandy Bridge	| WORKS			|
 | Ivy Bridge	| WORKS			|
-| Haswell	| UNTESTED		|
-| Broadwell	| UNTESTED		|
-| Skylake	| SHOULD WORK		|
+| Haswell	| SHOULD WORK		|
+| Broadwell	| SHOULD WORK		|
+| Skylake	| WORKS		|
 
 Special thanks to Federico Amedeo Izzo for his help during the study of Intel
 ME.
