@@ -27,7 +27,8 @@ def fill_range(f, start, end, fill):
     f.writelines(itertools.repeat(block, (end - start) // 4096))
     f.write(fill[:(end - start) % 4096])
 
-def remove_module(f, mod_header, ftpr_offset, lzma_start, lzma_end):
+
+def remove_module(f, mod_header, ftpr_offset, lzma_start_rel, lzma_end_rel):
     name = mod_header[0x04:0x14].decode("ascii")
     start = unpack("<I", mod_header[0x38:0x3C])[0]
     size = unpack("<I", mod_header[0x40:0x44])[0]
@@ -35,16 +36,16 @@ def remove_module(f, mod_header, ftpr_offset, lzma_start, lzma_end):
     comp_type = (flags >> 4) & 7
 
     if comp_type == 0x00 or comp_type == 0x02:
-        if start >= lzma_start and start + size <= lzma_end:
-            fill_range(f, ftpr_offset + start, ftpr_offset + start + size,
-                       b"\xFF")
+        if start >= lzma_start_rel and start + size <= lzma_end_rel:
+            # Already removed
             print(" {:<16}: removed (0x{:0X} - 0x{:0X})"
                   .format(name, ftpr_offset + start,
                           ftpr_offset + start + size))
         else:
             print(" {:<16}: is outside the LZMA region (module 0x{:0X} - "
                   "0x{:0X}, LZMA 0x{:0X} - 0x{:0X}), skipping"
-                  .format(name, start, start+size, lzma_start, lzma_end))
+                  .format(name, start, start+size, lzma_start_rel,
+                          lzma_end_rel))
     elif comp_type == 0x01:
         print(" {:<16}: removal of Huffman modules is not supported yet, "
               "skipping".format(name))
@@ -94,9 +95,9 @@ else:
                                                     ftpr_offset + ftpr_lenght))
                 print("Removing extra partitions...")
 
-                fill_range(f, 0x30, ftpr_offset, b"\xFF")
+                fill_range(f, 0x30, ftpr_offset, b"\xff")
                 f.seek(0, 2)
-                fill_range(f, ftpr_offset + ftpr_lenght, f.tell(), b"\xFF")
+                fill_range(f, ftpr_offset + ftpr_lenght, f.tell(), b"\xff")
 
                 print("Removing extra partition entries in FPT...")
                 f.seek(0x30, 0)
@@ -120,22 +121,29 @@ else:
                         f.seek(ftpr_offset + 0x20, 0)
                         num_modules = unpack("<I", f.read(4))[0]
                         f.seek(ftpr_offset + 0x290, 0)
-                        mod_headers = [f.read(0x60) for i in range(0, num_modules)]
+                        mod_hs = [f.read(0x60) for i in range(0, num_modules)]
 
-                        if any(mod_h.startswith(b"$MME") for mod_h in mod_headers):
+                        if any(mod_h.startswith(b"$MME") for mod_h in mod_hs):
                             f.seek(ftpr_offset + 0x18, 0)
                             size = unpack("<I", f.read(4))[0]
                             llut_start = ftpr_offset + (size * 4 + 0x3f) & ~0x3f
 
                             f.seek(llut_start + 0x10, 0)
                             huff_start, huff_size = unpack("<II", f.read(8))
-                            lzma_start = huff_start + huff_size - ftpr_offset
+                            lzma_start = huff_start + huff_size
+
+                            print("Wiping LZMA section (0x{:0X} - 0x{:0X})"
+                                  .format(lzma_start,
+                                          ftpr_offset + ftpr_lenght))
+                            fill_range(f, lzma_start,
+                                       ftpr_offset + ftpr_lenght, b"\xff")
 
                             f.seek(llut_start, 0)
                             if f.read(4) == b"LLUT":
-                                for mod_header in mod_headers:
+                                for mod_header in mod_hs:
                                     remove_module(f, mod_header, ftpr_offset,
-                                                  lzma_start, ftpr_lenght)
+                                                  lzma_start - ftpr_offset,
+                                                  ftpr_lenght)
 
                             else:
                                 print("Can't find the LLUT region in the FTPR "
