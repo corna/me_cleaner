@@ -64,8 +64,17 @@ else:
             entries = unpack("<I", f.read(4))[0]
             print("Found {} partition(s)".format(entries))
 
-            f.seek(0x02, 1)
+            f.seek(0x14, 0)
             header_len = unpack("<B", f.read(1))[0]
+            f.seek(0x28, 0)
+            version = unpack("<HHHH", f.read(8))
+
+            if version == (0, 0, 0, 0):
+                print("Unspecified ME firmware version")
+            else:
+                print("ME firmware version {}"
+                      .format('.'.join(str(i) for i in version)))
+
             f.seek(0x30, 0)
             partitions = f.read(entries * 0x20)
 
@@ -102,37 +111,44 @@ else:
                 f.seek(0x24, 0)
                 f.write(pack("<I", flags))
 
-                print("Reading FTPR modules list...")
-                f.seek(ftpr_offset + 0x1c, 0)
-                if f.read(4) == b"$MN2":
-                    f.seek(ftpr_offset + 0x20, 0)
-                    num_modules = unpack("<I", f.read(4))[0]
-                    f.seek(ftpr_offset + 0x290, 0)
-                    mod_headers = [f.read(0x60) for i in range(0, num_modules)]
-                    
-                    if any(mod_h.startswith(b"$MME") for mod_h in mod_headers):
-                        f.seek(ftpr_offset + 0x18, 0)
-                        size = unpack("<I", f.read(4))[0]
-                        llut_start = ftpr_offset + (size * 4 + 0x3f) & ~0x3f
+                f.seek(ftpr_offset, 0)
+                if version[0] < 11 and f.read(4) != b"$CPD":
+                    print("Reading FTPR modules list...")
+                    f.seek(ftpr_offset + 0x1c, 0)
+                    tag = f.read(4)
+                    if tag == b"$MN2":
+                        f.seek(ftpr_offset + 0x20, 0)
+                        num_modules = unpack("<I", f.read(4))[0]
+                        f.seek(ftpr_offset + 0x290, 0)
+                        mod_headers = [f.read(0x60) for i in range(0, num_modules)]
 
-                        f.seek(llut_start + 0x10, 0)
-                        huff_start, huff_size = unpack("<II", f.read(8))
-                        lzma_start = huff_start + huff_size - ftpr_offset
+                        if any(mod_h.startswith(b"$MME") for mod_h in mod_headers):
+                            f.seek(ftpr_offset + 0x18, 0)
+                            size = unpack("<I", f.read(4))[0]
+                            llut_start = ftpr_offset + (size * 4 + 0x3f) & ~0x3f
 
-                        f.seek(llut_start, 0)
-                        if f.read(4) == b"LLUT":
-                            for mod_header in mod_headers:
-                                remove_module(f, mod_header, ftpr_offset,
-                                              lzma_start, ftpr_lenght)
+                            f.seek(llut_start + 0x10, 0)
+                            huff_start, huff_size = unpack("<II", f.read(8))
+                            lzma_start = huff_start + huff_size - ftpr_offset
 
+                            f.seek(llut_start, 0)
+                            if f.read(4) == b"LLUT":
+                                for mod_header in mod_headers:
+                                    remove_module(f, mod_header, ftpr_offset,
+                                                  lzma_start, ftpr_lenght)
+
+                            else:
+                                print("Can't find the LLUT region in the FTPR "
+                                      "partition")
                         else:
-                            print("Can't find the LLUT region in the FTPR "
+                            print("Can't find the $MN2 modules in the FTPR "
                                   "partition")
                     else:
-                        print("Can't find the $MN2 modules in the FTPR "
-                              "partition")
+                        print("Wrong FTPR partition tag ({})".format(tag))
+
                 else:
-                    print("Wrong FTPR partition tag ({})")
+                    print("Modules removal in ME v11 or greater is not yet "
+                          "supported")
 
                 print("Correcting checksum...")
                 # The checksum is just the two's complement of the sum of the
