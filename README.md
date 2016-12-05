@@ -16,12 +16,13 @@ Currently this tool:
 
 Current status:
 
-| Architecture  | Status		|
-|---------------|-----------------------|
-| Nehalem	| DOESN'T WORK (yet)	|
-| Sandy Bridge	| UNTESTED		|
-| Ivy Bridge	| UNTESTED		|
-| Haswell	| UNTESTED		|
-| Broadwell	| UNTESTED		|
-| Skylake	| UNTESTED		|
-
+| PCH           | CPU           | SKU      | Status		 |
+|:-------------:|:-------------:|:--------:|:---------:|
+| Ibex Peak     | Nehalem       | Ignition | **WORKS** |
+| Ibex Peak     | Nehalem       | 1.5/5MB	 | DOESN'T WORK (yet) |
+| Cougar Point  | Sandy Bridge	| 1.5/5MB  | UNTESTED |
+| Panther Point | Ivy Bridge	  | 1.5/5MB  | **WORKS** |
+| Lynxt Point   | Haswell       | 1.5/5MB	 | UNTESTED |
+| Lynxt Point   | Broadwell	    | 1.5/5MB  | UNTESTED |
+| Sunrise Point | Skylake	      | CON/COR  | UNTESTED |
+| Union Point   | Kabylake	    | CON/COR  | UNTESTED |
