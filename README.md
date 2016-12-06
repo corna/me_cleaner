@@ -16,13 +16,13 @@ Currently this tool:
 
 Current status:
 
-| PCH           | CPU           | SKU      | Status		 |
-|:-------------:|:-------------:|:--------:|:---------:|
-| Ibex Peak     | Nehalem       | Ignition | **WORKS** |
-| Ibex Peak     | Nehalem       | 1.5/5MB	 | DOESN'T WORK (yet) |
-| Cougar Point  | Sandy Bridge	| 1.5/5MB  | UNTESTED |
-| Panther Point | Ivy Bridge	  | 1.5/5MB  | **WORKS** |
-| Lynxt Point   | Haswell       | 1.5/5MB	 | UNTESTED |
-| Lynxt Point   | Broadwell	    | 1.5/5MB  | UNTESTED |
-| Sunrise Point | Skylake	      | CON/COR  | UNTESTED |
-| Union Point   | Kabylake	    | CON/COR  | UNTESTED |
+| PCH           | CPU           | ME | SKU      | Status		 |
+|:-------------:|:-------------:|:---|:--------:|:---------:|
+| Ibex Peak     | Nehalem       | 6.0 | Ignition | **WORKS** |
+| Ibex Peak     | Nehalem       | 6.x | 1.5/5MB	 | DOESN'T WORK (yet) |
+| Cougar Point  | Sandy Bridge	| 7.x | 1.5/5MB  | UNTESTED |
+| Panther Point | Ivy Bridge	  | 8.x | 1.5/5MB  | **WORKS** |
+| Lynx/Wildcat Point   | Haswell/Broadwell       | 9.x | 1.5/5MB	 | UNTESTED |
+| Wildcat  Point LP   | Broadwell Mobile	    | 10.0 | 1.5/5MB  | UNTESTED |
+| Sunrise Point | Skylake/Kabylake	      | 11.x | CON/COR  | UNTESTED |
+| Union Point   | Kabylake	    | 11.6 | CON/COR  | UNTESTED |
