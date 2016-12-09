@@ -25,7 +25,7 @@ def fill_range(f, start, end, fill):
     block = fill * 4096
     f.seek(start, 0)
     f.writelines(itertools.repeat(block, (end - start) // 4096))
-    f.write(fill[:(end - start) % 4096])
+    f.write(block[:(end - start) % 4096])
 
 
 def remove_module(f, mod_header, ftpr_offset, lzma_start_rel, lzma_end_rel):
