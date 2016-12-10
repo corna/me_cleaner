@@ -17,14 +17,16 @@ off and power on, not just reboot).
 
 Current status:
 
-| Architecture  | Status		|
-|---------------|-----------------------|
-| Nehalem	| DOESN'T WORK (yet)	|
-| Sandy Bridge	| WORKS			|
-| Ivy Bridge	| WORKS			|
-| Haswell	| SHOULD WORK		|
-| Broadwell	| SHOULD WORK		|
-| Skylake	| WORKS		|
+| PCH           | CPU           | ME | SKU      | Status		 |
+|:-------------:|:-------------:|:---|:--------:|:---------:|
+| Ibex Peak     | Nehalem       | 6.0 | Ignition | **WORKS** |
+| Ibex Peak     | Nehalem       | 6.x | 1.5/5MB	 | DOESN'T WORK (yet) |
+| Cougar Point  | Sandy Bridge	| 7.x | 1.5/5MB  | **WORKS** |
+| Panther Point | Ivy Bridge	  | 8.x | 1.5/5MB  | **WORKS** |
+| Lynx/Wildcat Point   | Haswell/Broadwell       | 9.x | 1.5/5MB	 | UNTESTED |
+| Wildcat  Point LP   | Broadwell Mobile	    | 10.0 | 1.5/5MB  | UNTESTED |
+| Sunrise Point | Skylake/Kabylake	      | 11.x | CON/COR  | **WORKS** |
+| Union Point   | Kabylake	    | 11.6 | CON/COR  | UNTESTED |
 
 Special thanks to Federico Amedeo Izzo for his help during the study of Intel
 ME.
