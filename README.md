@@ -14,14 +14,4 @@ Currently this tool:
  * Removes any LZMA-compressed module
  * Corrects the FPT checksum
 
-Current status:
-
-| Architecture  | Status		|
-|---------------|-----------------------|
-| Nehalem	| DOESN'T WORK (yet)	|
-| Sandy Bridge	| UNTESTED		|
-| Ivy Bridge	| UNTESTED		|
-| Haswell	| UNTESTED		|
-| Broadwell	| UNTESTED		|
-| Skylake	| UNTESTED		|
-
+See the current status [in the wiki](https://github.com/corna/me_cleaner/wiki/me_cleaner-status).
