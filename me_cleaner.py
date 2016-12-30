@@ -21,6 +21,38 @@ import itertools
 from struct import *
 
 
+def get_chunk_offset(llut, chunk_num):
+    chunk = llut[0x40 + chunk_num * 4:0x44 + chunk_num * 4]
+    if chunk[3] != 0x80:
+        return int.from_bytes(chunk[0:3], byteorder='little')
+    else:
+        return 0
+
+
+def huff_offset_end(mod_header, llut):
+    chunk_count = unpack("<I", llut[0x4:0x8])[0]
+    base = unpack("<I", llut[0x8:0xc])[0] + 0x10000000
+    huff_data_len, huff_data_start = unpack("<II", llut[0x10:0x18])
+    chunk_size = unpack("<I", llut[0x30:0x34])[0]
+    module_base = unpack("<I", mod_header[0x34:0x38])[0]
+    module_size = unpack("<I", mod_header[0x3c:0x40])[0]
+    first_chunk_num = (module_base - base) // chunk_size
+    last_chunk_num = first_chunk_num + module_size // chunk_size + 1
+
+    while first_chunk_num < last_chunk_num and get_chunk_offset(llut, first_chunk_num) == 0:
+        first_chunk_num += 1
+
+    while last_chunk_num < chunk_count and get_chunk_offset(llut, last_chunk_num) == 0:
+        last_chunk_num += 1
+
+    if last_chunk_num >= chunk_count:
+        return get_chunk_offset(llut, first_chunk_num), \
+                huff_data_start + huff_data_len
+    else:
+        return get_chunk_offset(llut, first_chunk_num), \
+                get_chunk_offset(llut, last_chunk_num)
+
+
 def fill_range(f, start, end, fill):
     block = fill * 4096
     f.seek(start, 0)
@@ -28,29 +60,31 @@ def fill_range(f, start, end, fill):
     f.write(block[:(end - start) % 4096])
 
 
-def remove_module(f, mod_header, ftpr_offset, lzma_start_rel, lzma_end_rel):
+def remove_module(f, mod_header, ftpr_offset, lzma_start, lzma_end, llut):
     name = mod_header[0x04:0x14].decode("ascii")
-    start = unpack("<I", mod_header[0x38:0x3C])[0]
+    start = unpack("<I", mod_header[0x38:0x3C])[0] + ftpr_offset
     size = unpack("<I", mod_header[0x40:0x44])[0]
     flags = unpack("<I", mod_header[0x50:0x54])[0]
     comp_type = (flags >> 4) & 7
 
-    print(" {:<16}: ".format(name), end="")
+    print(" {:<16}".format(name), end="")
 
     if comp_type == 0x00 or comp_type == 0x02:
-        if start >= lzma_start_rel and start + size <= lzma_end_rel:
+        print(" ({:#x} - {:#x}): ".format(start, start + size), end = "")
+
+        if start >= lzma_start and start + size <= lzma_end:
             # Already removed
-            print("removed ({:#x} - {:#x})".format(ftpr_offset + start,
-                                                   ftpr_offset + start + size))
+            print("removed")
         else:
-            print("outside the LZMA region (module {:#x} - {:#x}, "
-                  "LZMA {:#x} - {:#x}), skipping"
-                  .format(start, start+size, lzma_start_rel,
-                          lzma_end_rel))
+            print("outside the LZMA region ({:#x} - {:#x}), skipping"
+                  .format(lzma_start, lzma_end))
     elif comp_type == 0x01:
-        print("removal of Huffman modules is not supported yet, skipping")
+        module_start, module_end = huff_offset_end(mod_header, llut)
+        print(" ({:#x} - {:#x}): removal of Huffman modules is not supported "
+                "yet, skipping".format(module_start, module_end))
     else:
         print("unknown compression, skipping")
+
 
 if len(sys.argv) != 2 or sys.argv[1] == "-h" or sys.argv[1] == "--help":
     print("Usage: \n"
@@ -184,9 +218,16 @@ else:
 
                     f.seek(llut_start, 0)
                     if f.read(4) == b"LLUT":
+                        f.seek(llut_start)
+                        llut = f.read(0x40)
+                        chunk_count = unpack("<I", llut[0x4:0x8])[0]
+                        huff_data_len = unpack("<I", llut[0x10:0x14])[0]
+                        llut += f.read(chunk_count * 4 + huff_data_len)
+
                         for mod_header in mod_hs:
                             remove_module(f, mod_header, ftpr_offset,
-                                          lzma_start - ftpr_offset, ftpr_lenght)
+                                          lzma_start,
+                                          ftpr_offset + ftpr_lenght, llut)
                     else:
                         print("Can't find the LLUT region in the FTPR "
                               "partition")
