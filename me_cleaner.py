@@ -21,6 +21,9 @@ import itertools
 from struct import *
 
 
+unremovable_huff_modules = ("BUP", "ROMP")
+
+
 def get_chunk_offset(llut, chunk_num):
     chunk = llut[0x40 + chunk_num * 4:0x44 + chunk_num * 4]
     if chunk[3] != 0x80:
@@ -39,10 +42,12 @@ def huff_offset_end(mod_header, llut):
     first_chunk_num = (module_base - base) // chunk_size
     last_chunk_num = first_chunk_num + module_size // chunk_size + 1
 
-    while first_chunk_num < last_chunk_num and get_chunk_offset(llut, first_chunk_num) == 0:
+    while first_chunk_num < last_chunk_num and \
+            get_chunk_offset(llut, first_chunk_num) == 0:
         first_chunk_num += 1
 
-    while last_chunk_num < chunk_count and get_chunk_offset(llut, last_chunk_num) == 0:
+    while last_chunk_num < chunk_count and \
+            get_chunk_offset(llut, last_chunk_num) == 0:
         last_chunk_num += 1
 
     if last_chunk_num >= chunk_count:
@@ -60,17 +65,19 @@ def fill_range(f, start, end, fill):
     f.write(block[:(end - start) % 4096])
 
 
-def remove_module(f, mod_header, ftpr_offset, lzma_start, lzma_end, llut):
-    name = mod_header[0x04:0x14].decode("ascii")
+def remove_module(f, mod_header, ftpr_offset, lzma_start, lzma_end, llut, \
+                    me_start):
+    name = mod_header[0x04:0x14].rstrip(b"\x00").decode("ascii")
     start = unpack("<I", mod_header[0x38:0x3C])[0] + ftpr_offset
     size = unpack("<I", mod_header[0x40:0x44])[0]
     flags = unpack("<I", mod_header[0x50:0x54])[0]
     comp_type = (flags >> 4) & 7
 
-    print(" {:<16}".format(name), end="")
+    print(" {:<16} ".format(name), end = "")
 
     if comp_type == 0x00 or comp_type == 0x02:
-        print(" ({:#x} - {:#x}): ".format(start, start + size), end = "")
+        print("(LZMA,    0x{:06x} - 0x{:06x}): ".format(start, start + size),
+                end = "")
 
         if start >= lzma_start and start + size <= lzma_end:
             # Already removed
@@ -78,10 +85,20 @@ def remove_module(f, mod_header, ftpr_offset, lzma_start, lzma_end, llut):
         else:
             print("outside the LZMA region ({:#x} - {:#x}), skipping"
                   .format(lzma_start, lzma_end))
+
     elif comp_type == 0x01:
         module_start, module_end = huff_offset_end(mod_header, llut)
-        print(" ({:#x} - {:#x}): removal of Huffman modules is not supported "
-                "yet, skipping".format(module_start, module_end))
+        module_start += me_start
+        module_end += me_start
+        print("(Huffman, 0x{:06x} - 0x{:06x}): "
+                .format(module_start, module_end), end = "")
+
+        if name in unremovable_huff_modules:
+            print("NOT removed, essential")
+        else:
+            fill_range(f, module_start, module_end, b"\xff")
+            print("removed")
+
     else:
         print("unknown compression, skipping")
 
@@ -198,9 +215,9 @@ else:
                 f.seek(ftpr_offset + 0x20, 0)
                 num_modules = unpack("<I", f.read(4))[0]
                 f.seek(ftpr_offset + 0x290, 0)
-                mod_hs = [f.read(0x60) for i in range(0, num_modules)]
+                mod_headers = [f.read(0x60) for i in range(0, num_modules)]
 
-                if any(mod_h.startswith(b"$MME") for mod_h in mod_hs):
+                if any(mod_h.startswith(b"$MME") for mod_h in mod_headers):
 
                     f.seek(ftpr_offset + 0x18, 0)
                     size = unpack("<I", f.read(4))[0]
@@ -224,10 +241,11 @@ else:
                         huff_data_len = unpack("<I", llut[0x10:0x14])[0]
                         llut += f.read(chunk_count * 4 + huff_data_len)
 
-                        for mod_header in mod_hs:
+                        for mod_header in mod_headers:
                             remove_module(f, mod_header, ftpr_offset,
                                           lzma_start,
-                                          ftpr_offset + ftpr_lenght, llut)
+                                          ftpr_offset + ftpr_lenght,
+                                          llut, me_start)
                     else:
                         print("Can't find the LLUT region in the FTPR "
                               "partition")
@@ -242,7 +260,7 @@ else:
         header = f.read(0x30)
         checksum = (0x100 - (sum(header) - header[0x1b]) & 0xff) & 0xff
 
-        print("Correcting checksum ({:#x})...".format(checksum))
+        print("Correcting checksum (0x{:02x})...".format(checksum))
         # The checksum is just the two's complement of the sum of the first
         # 0x30 bytes (except for 0x1b, the checksum itself). In other words,
         # the sum of the first 0x30 bytes must be always 0x00.
