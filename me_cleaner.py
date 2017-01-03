@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python
 
 # Copyright (C) 2016 Nicola Corna <nicola@corna.info>
 #
@@ -18,7 +18,7 @@
 
 import sys
 import itertools
-from struct import *
+from struct import pack, unpack
 
 
 unremovable_huff_modules = ("BUP", "ROMP")
@@ -27,7 +27,7 @@ unremovable_huff_modules = ("BUP", "ROMP")
 def get_chunk_offset(llut, chunk_num):
     chunk = llut[0x40 + chunk_num * 4:0x44 + chunk_num * 4]
     if chunk[3] != 0x80:
-        return int.from_bytes(chunk[0:3], byteorder='little')
+        return unpack("<I", chunk[0:3] + b"\x00")[0]
     else:
         return 0
 
@@ -73,11 +73,11 @@ def remove_module(f, mod_header, ftpr_offset, lzma_start, lzma_end, llut, \
     flags = unpack("<I", mod_header[0x50:0x54])[0]
     comp_type = (flags >> 4) & 7
 
-    print(" {:<16} ".format(name), end = "")
+    sys.stdout.write(" {:<16} ".format(name))
 
     if comp_type == 0x00 or comp_type == 0x02:
-        print("(LZMA,    0x{:06x} - 0x{:06x}): ".format(start, start + size),
-                end = "")
+        sys.stdout.write("(LZMA,    0x{:06x} - 0x{:06x}): "
+                            .format(start, start + size))
 
         if start >= lzma_start and start + size <= lzma_end:
             # Already removed
@@ -90,8 +90,8 @@ def remove_module(f, mod_header, ftpr_offset, lzma_start, lzma_end, llut, \
         module_start, module_end = huff_offset_end(mod_header, llut)
         module_start += me_start
         module_end += me_start
-        print("(Huffman, 0x{:06x} - 0x{:06x}): "
-                .format(module_start, module_end), end = "")
+        sys.stdout.write("(Huffman, 0x{:06x} - 0x{:06x}): "
+                            .format(module_start, module_end))
 
         if name in unremovable_huff_modules:
             print("NOT removed, essential")
@@ -257,7 +257,7 @@ else:
             print("Modules removal in ME v11 or greater is not yet supported")
 
         f.seek(me_start, 0)
-        header = f.read(0x30)
+        header = bytearray(f.read(0x30))
         checksum = (0x100 - (sum(header) - header[0x1b]) & 0xff) & 0xff
 
         print("Correcting checksum (0x{:02x})...".format(checksum))
