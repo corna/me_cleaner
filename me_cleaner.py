@@ -204,6 +204,17 @@ else:
         f.seek(me_start + 0x24, 0)
         f.write(pack("<I", flags))
 
+        f.seek(me_start, 0)
+        header = bytearray(f.read(0x30))
+        checksum = (0x100 - (sum(header) - header[0x1b]) & 0xff) & 0xff
+
+        print("Correcting checksum (0x{:02x})...".format(checksum))
+        # The checksum is just the two's complement of the sum of the first
+        # 0x30 bytes (except for 0x1b, the checksum itself). In other words,
+        # the sum of the first 0x30 bytes must be always 0x00.
+        f.seek(me_start + 0x1b, 0)
+        f.write(pack("B", checksum))
+
         f.seek(ftpr_offset, 0)
         if version[0] < 11 and f.read(4) != b"$CPD":
 
@@ -255,17 +266,6 @@ else:
                 print("Wrong FTPR partition tag ({})".format(tag))
         else:
             print("Modules removal in ME v11 or greater is not yet supported")
-
-        f.seek(me_start, 0)
-        header = bytearray(f.read(0x30))
-        checksum = (0x100 - (sum(header) - header[0x1b]) & 0xff) & 0xff
-
-        print("Correcting checksum (0x{:02x})...".format(checksum))
-        # The checksum is just the two's complement of the sum of the first
-        # 0x30 bytes (except for 0x1b, the checksum itself). In other words,
-        # the sum of the first 0x30 bytes must be always 0x00.
-        f.seek(me_start + 0x1b, 0)
-        f.write(pack("B", checksum))
 
         print("Done! Good luck!")
 
