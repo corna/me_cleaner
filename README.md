@@ -11,8 +11,9 @@ Currently this tool:
  * Removes any partition entry (except for FTPR) from FPT
  * Removes any partition except for the fundamental one (FTPR)
  * Removes the EFFS presence flag
- * Removes any LZMA-compressed module
  * Corrects the FPT checksum
+ * Removes any LZMA-compressed module (pre-Skylake only)
+ * Removes most of the Huffman-compressed modules (pre-Skylake only)
 
 Don't forget to power cycle your PC after flashing the modified ME image (power
 off and power on, not just reboot).
