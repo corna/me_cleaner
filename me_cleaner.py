@@ -24,38 +24,30 @@ from struct import pack, unpack
 unremovable_huff_modules = ("BUP", "ROMP")
 
 
-def get_chunk_offset(llut, chunk_num):
-    chunk = llut[0x40 + chunk_num * 4:0x44 + chunk_num * 4]
-    if chunk[3] != 0x80:
-        return unpack("<I", chunk[0:3] + b"\x00")[0]
-    else:
-        return 0
+def get_chunks_offsets(llut, me_start):
+    chunk_count = unpack("<I", llut[0x04:0x08])[0]
+    huffman_stream_end = sum(unpack("<II", llut[0x10:0x18])) + me_start
+    nonzero_offsets = [huffman_stream_end]
+    offsets = []
 
+    for i in range(0, chunk_count):
+        chunk = llut[0x40 + i * 4:0x44 + i * 4]
+        offset = 0
 
-def huff_offset_end(mod_header, llut):
-    chunk_count = unpack("<I", llut[0x4:0x8])[0]
-    base = unpack("<I", llut[0x8:0xc])[0] + 0x10000000
-    huff_data_len, huff_data_start = unpack("<II", llut[0x10:0x18])
-    chunk_size = unpack("<I", llut[0x30:0x34])[0]
-    module_base = unpack("<I", mod_header[0x34:0x38])[0]
-    module_size = unpack("<I", mod_header[0x3c:0x40])[0]
-    first_chunk_num = (module_base - base) // chunk_size
-    last_chunk_num = first_chunk_num + module_size // chunk_size + 1
+        if chunk[3] != 0x80:
+            offset = unpack("<I", chunk[0:3] + b"\x00")[0] + me_start
 
-    while first_chunk_num < last_chunk_num and \
-            get_chunk_offset(llut, first_chunk_num) == 0:
-        first_chunk_num += 1
+        offsets.append([offset, 0])
+        if offset != 0:
+            nonzero_offsets.append(offset)
 
-    while last_chunk_num < chunk_count and \
-            get_chunk_offset(llut, last_chunk_num) == 0:
-        last_chunk_num += 1
+    nonzero_offsets.sort()
 
-    if last_chunk_num >= chunk_count:
-        return get_chunk_offset(llut, first_chunk_num), \
-                huff_data_start + huff_data_len
-    else:
-        return get_chunk_offset(llut, first_chunk_num), \
-                get_chunk_offset(llut, last_chunk_num)
+    for i in offsets:
+        if i[0] != 0:
+            i[1] = nonzero_offsets[nonzero_offsets.index(i[0]) + 1]
+
+    return offsets
 
 
 def fill_range(f, start, end, fill):
@@ -65,42 +57,76 @@ def fill_range(f, start, end, fill):
     f.write(block[:(end - start) % 4096])
 
 
-def remove_module(f, mod_header, ftpr_offset, lzma_start, lzma_end, llut, \
-                    me_start):
-    name = mod_header[0x04:0x14].rstrip(b"\x00").decode("ascii")
-    start = unpack("<I", mod_header[0x38:0x3C])[0] + ftpr_offset
-    size = unpack("<I", mod_header[0x40:0x44])[0]
-    flags = unpack("<I", mod_header[0x50:0x54])[0]
-    comp_type = (flags >> 4) & 7
+def remove_huffman_modules(f, mod_headers, chunks_offsets, base, chunk_size):
+    unremovable_huff_chunks = []
 
-    sys.stdout.write(" {:<16} ".format(name))
+    for mod_header in mod_headers:
+        flags = unpack("<I", mod_header[0x50:0x54])[0]
+        comp_type = (flags >> 4) & 7
 
-    if comp_type == 0x00 or comp_type == 0x02:
-        sys.stdout.write("(LZMA,    0x{:06x} - 0x{:06x}): "
-                            .format(start, start + size))
+        if comp_type == 0x01:
+            name = mod_header[0x04:0x14].rstrip(b"\x00").decode("ascii")
 
-        if start >= lzma_start and start + size <= lzma_end:
-            # Already removed
-            print("removed")
+            if name in unremovable_huff_modules:
+                module_base = unpack("<I", mod_header[0x34:0x38])[0]
+                module_size = unpack("<I", mod_header[0x3c:0x40])[0]
+                first_chunk_num = (module_base - base) // chunk_size
+                last_chunk_num = first_chunk_num + module_size // chunk_size
+
+                unremovable_huff_chunks += \
+                    [x for x in chunks_offsets[first_chunk_num:
+                     last_chunk_num + 1] if x[0] != 0]
+
+    removable_huff_chunks = []
+
+    for chunk in chunks_offsets:
+        if all(not(unremovable_chunk[0] <= chunk[0] < unremovable_chunk[1] or
+                   unremovable_chunk[0] < chunk[1] <= unremovable_chunk[1])
+               for unremovable_chunk in unremovable_huff_chunks):
+            removable_huff_chunks.append(chunk)
+
+    for removable_chunk in removable_huff_chunks:
+        if removable_chunk[1] > removable_chunk[0]:
+            fill_range(f, removable_chunk[0], removable_chunk[1], b"\xff")
+
+
+def module_removal_report(f, mod_headers, ftpr_offset, lzma_start, lzma_end,
+                          lzma_removed, huffman_removed):
+    for mod_header in mod_headers:
+        name = mod_header[0x04:0x14].rstrip(b"\x00").decode("ascii")
+        flags = unpack("<I", mod_header[0x50:0x54])[0]
+        comp_type = (flags >> 4) & 7
+
+        sys.stdout.write(" {:<16} ".format(name))
+
+        if comp_type == 0x00 or comp_type == 0x02:
+            start = unpack("<I", mod_header[0x38:0x3C])[0] + ftpr_offset
+            size = unpack("<I", mod_header[0x40:0x44])[0]
+            sys.stdout.write("(LZMA, 0x{:06x} - 0x{:06x}): "
+                             .format(start, start + size))
+
+            if start >= lzma_start and start + size <= lzma_end:
+                if lzma_removed:
+                    print("removed")
+                else:
+                    print("NOT removed")
+            else:
+                print("outside the LZMA region ({:#x} - {:#x}), skipping"
+                      .format(lzma_start, lzma_end))
+
+        elif comp_type == 0x01:
+            sys.stdout.write("(Huffman, fragmented data ): ")
+
+            if name in unremovable_huff_modules:
+                print("NOT removed, essential")
+            else:
+                if huffman_removed:
+                    print("removed")
+                else:
+                    print("NOT removed")
+
         else:
-            print("outside the LZMA region ({:#x} - {:#x}), skipping"
-                  .format(lzma_start, lzma_end))
-
-    elif comp_type == 0x01:
-        module_start, module_end = huff_offset_end(mod_header, llut)
-        module_start += me_start
-        module_end += me_start
-        sys.stdout.write("(Huffman, 0x{:06x} - 0x{:06x}): "
-                            .format(module_start, module_end))
-
-        if name in unremovable_huff_modules:
-            print("NOT removed, essential")
-        else:
-            fill_range(f, module_start, module_end, b"\xff")
-            print("removed")
-
-    else:
-        print("unknown compression, skipping")
+            print("unknown compression, skipping")
 
 
 if len(sys.argv) != 2 or sys.argv[1] == "-h" or sys.argv[1] == "--help":
@@ -144,7 +170,7 @@ else:
                 print("The ME region goes from {:#x} to {:#x}"
                       .format(me_start, me_end))
             else:
-                sys.exit("This image does not contains an ME firmware (NR = {})"
+                sys.exit("This image does not contains a ME firmware (NR = {})"
                          .format(nr))
         else:
             sys.exit("Unknown image")
@@ -230,6 +256,9 @@ else:
 
                 if any(mod_h.startswith(b"$MME") for mod_h in mod_headers):
 
+                    lzma_removed = False
+                    huffman_removed = False
+
                     f.seek(ftpr_offset + 0x18, 0)
                     size = unpack("<I", f.read(4))[0]
                     llut_start = ftpr_offset + (size * 4 + 0x3f) & ~0x3f
@@ -239,27 +268,37 @@ else:
                     huff_start += me_start
                     lzma_start = huff_start + huff_size
 
-                    print("Wiping LZMA section ({:#x} - {:#x})"
+                    print("Wiping LZMA section ({:#x} - {:#x})..."
                           .format(lzma_start, ftpr_offset + ftpr_lenght))
                     fill_range(f, lzma_start, ftpr_offset + ftpr_lenght,
                                b"\xff")
+                    lzma_removed = True
 
                     f.seek(llut_start, 0)
-                    if f.read(4) == b"LLUT":
-                        f.seek(llut_start)
-                        llut = f.read(0x40)
-                        chunk_count = unpack("<I", llut[0x4:0x8])[0]
-                        huff_data_len = unpack("<I", llut[0x10:0x14])[0]
-                        llut += f.read(chunk_count * 4 + huff_data_len)
+                    llut = f.read(4)
+                    if llut == b"LLUT":
+                        llut += f.read(0x3c)
 
-                        for mod_header in mod_headers:
-                            remove_module(f, mod_header, ftpr_offset,
-                                          lzma_start,
-                                          ftpr_offset + ftpr_lenght,
-                                          llut, me_start)
+                        chunk_count = unpack("<I", llut[0x4:0x8])[0]
+                        base = unpack("<I", llut[0x8:0xc])[0] + 0x10000000
+                        huff_data_len = unpack("<I", llut[0x10:0x14])[0]
+                        chunk_size = unpack("<I", llut[0x30:0x34])[0]
+
+                        llut += f.read(chunk_count * 4 + huff_data_len)
+                        chunks_offsets = get_chunks_offsets(llut, me_start)
+
+                        print("Wiping removable Huffman modules...")
+                        remove_huffman_modules(f, mod_headers, chunks_offsets,
+                                               base, chunk_size)
+                        huffman_removed = True
                     else:
                         print("Can't find the LLUT region in the FTPR "
                               "partition")
+
+                    module_removal_report(f, mod_headers, ftpr_offset,
+                                          lzma_start,
+                                          ftpr_offset + ftpr_lenght,
+                                          lzma_removed, huffman_removed)
                 else:
                     print("Can't find the $MN2 modules in the FTPR partition")
             else:
