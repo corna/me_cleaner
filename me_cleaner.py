@@ -139,9 +139,6 @@ else:
         f.seek(0x10, 0)
         magic = f.read(4)
 
-        me_start = 0
-        me_end = 0
-
         if magic == b"$FPT":
             print("ME image detected")
             me_start = 0
@@ -183,21 +180,11 @@ else:
 
         f.seek(me_start + 0x14, 0)
         header_len = unpack("B", f.read(1))[0]
-        f.seek(me_start + 0x28, 0)
-        version = unpack("<HHHH", f.read(8))
-
-        if version == (0, 0, 0, 0):
-            print("Unspecified ME firmware version")
-        else:
-            print("ME firmware version {}"
-                  .format('.'.join(str(i) for i in version)))
 
         f.seek(me_start + 0x30, 0)
         partitions = f.read(entries * 0x20)
 
         ftpr_header = b""
-        ftpr_offset = 0
-        ftpr_lenght = 0
 
         for i in range(entries):
             if partitions[i * 0x20:(i * 0x20) + 4] == b"FTPR":
@@ -242,8 +229,19 @@ else:
         f.write(pack("B", checksum))
 
         f.seek(ftpr_offset, 0)
-        if version[0] < 11 and f.read(4) != b"$CPD":
+        if f.read(4) == b"$CPD":
+            me11 = True
+            num_entries = unpack("<I", f.read(4))[0]
+            f.seek(ftpr_offset + 0x10 + num_entries * 0x18 + 0x24)
+        else:
+            me11 = False
+            f.seek(ftpr_offset + 0x24, 0)
 
+        version = unpack("<HHHH", f.read(0x08))
+        print("ME firmware version {}"
+              .format('.'.join(str(i) for i in version)))
+
+        if not me11:
             print("Reading FTPR modules list...")
             f.seek(ftpr_offset + 0x1c, 0)
             tag = f.read(4)
