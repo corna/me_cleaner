@@ -52,7 +52,7 @@ def get_chunks_offsets(llut, me_start):
 
 def fill_range(f, start, end, fill):
     block = fill * 4096
-    f.seek(start, 0)
+    f.seek(start)
     f.writelines(itertools.repeat(block, (end - start) // 4096))
     f.write(block[:(end - start) % 4096])
 
@@ -136,7 +136,7 @@ if len(sys.argv) != 2 or sys.argv[1] == "-h" or sys.argv[1] == "--help":
           " me_cleaner.py full_dump.bin")
 else:
     with open(sys.argv[1], "r+b") as f:
-        f.seek(0x10, 0)
+        f.seek(0x10)
         magic = f.read(4)
 
         if magic == b"$FPT":
@@ -147,12 +147,12 @@ else:
 
         elif magic == b"\x5a\xa5\xf0\x0f":
             print("Full image detected")
-            f.seek(0x14, 0)
+            f.seek(0x14)
             flmap0 = unpack("<I", f.read(4))[0]
             nr = flmap0 >> 24 & 0x7
             frba = flmap0 >> 12 & 0xff0
             if nr >= 2:
-                f.seek(frba + 0x8, 0)
+                f.seek(frba + 0x8)
                 flreg2 = unpack("<I", f.read(4))[0]
                 me_start = (flreg2 & 0x1fff) << 12
                 me_end = flreg2 >> 4 & 0x1fff000 | 0xfff
@@ -178,10 +178,10 @@ else:
         entries = unpack("<I", f.read(4))[0]
         print("Found {} partition(s)".format(entries))
 
-        f.seek(me_start + 0x14, 0)
+        f.seek(me_start + 0x14)
         header_len = unpack("B", f.read(1))[0]
 
-        f.seek(me_start + 0x30, 0)
+        f.seek(me_start + 0x30)
         partitions = f.read(entries * 0x20)
 
         ftpr_header = b""
@@ -205,16 +205,16 @@ else:
         fill_range(f, ftpr_offset + ftpr_lenght, me_end, b"\xff")
 
         print("Removing extra partition entries in FPT...")
-        f.seek(me_start + 0x30, 0)
+        f.seek(me_start + 0x30)
         f.write(ftpr_header)
-        f.seek(me_start + 0x14, 0)
+        f.seek(me_start + 0x14)
         f.write(pack("<I", 1))
 
         print("Removing EFFS presence flag...")
-        f.seek(me_start + 0x24, 0)
+        f.seek(me_start + 0x24)
         flags = unpack("<I", f.read(4))[0]
         flags &= ~(0x00000001)
-        f.seek(me_start + 0x24, 0)
+        f.seek(me_start + 0x24)
         f.write(pack("<I", flags))
 
         f.seek(me_start, 0)
@@ -225,17 +225,17 @@ else:
         # The checksum is just the two's complement of the sum of the first
         # 0x30 bytes (except for 0x1b, the checksum itself). In other words,
         # the sum of the first 0x30 bytes must be always 0x00.
-        f.seek(me_start + 0x1b, 0)
+        f.seek(me_start + 0x1b)
         f.write(pack("B", checksum))
 
-        f.seek(ftpr_offset, 0)
+        f.seek(ftpr_offset)
         if f.read(4) == b"$CPD":
             me11 = True
             num_entries = unpack("<I", f.read(4))[0]
             f.seek(ftpr_offset + 0x10 + num_entries * 0x18 + 0x24)
         else:
             me11 = False
-            f.seek(ftpr_offset + 0x24, 0)
+            f.seek(ftpr_offset + 0x24)
 
         version = unpack("<HHHH", f.read(0x08))
         print("ME firmware version {}"
@@ -243,13 +243,13 @@ else:
 
         if not me11:
             print("Reading FTPR modules list...")
-            f.seek(ftpr_offset + 0x1c, 0)
+            f.seek(ftpr_offset + 0x1c)
             tag = f.read(4)
 
             if tag == b"$MN2":
-                f.seek(ftpr_offset + 0x20, 0)
+                f.seek(ftpr_offset + 0x20)
                 num_modules = unpack("<I", f.read(4))[0]
-                f.seek(ftpr_offset + 0x290, 0)
+                f.seek(ftpr_offset + 0x290)
                 mod_headers = [f.read(0x60) for i in range(0, num_modules)]
 
                 if any(mod_h.startswith(b"$MME") for mod_h in mod_headers):
@@ -257,11 +257,11 @@ else:
                     lzma_removed = False
                     huffman_removed = False
 
-                    f.seek(ftpr_offset + 0x18, 0)
+                    f.seek(ftpr_offset + 0x18)
                     size = unpack("<I", f.read(4))[0]
                     llut_start = ftpr_offset + (size * 4 + 0x3f) & ~0x3f
 
-                    f.seek(llut_start + 0x10, 0)
+                    f.seek(llut_start + 0x10)
                     huff_start, huff_size = unpack("<II", f.read(8))
                     huff_start += me_start
                     lzma_start = huff_start + huff_size
@@ -272,7 +272,7 @@ else:
                                b"\xff")
                     lzma_removed = True
 
-                    f.seek(llut_start, 0)
+                    f.seek(llut_start)
                     llut = f.read(4)
                     if llut == b"LLUT":
                         llut += f.read(0x3c)
