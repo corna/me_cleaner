@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# Copyright (C) 2016 Nicola Corna <nicola@corna.info>
+# Copyright (C) 2016, 2017 Nicola Corna <nicola@corna.info>
 #
 # me_cleaner is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@ import itertools
 from struct import pack, unpack
 
 
-unremovable_huff_modules = ("BUP", "ROMP")
+unremovable_modules = ("BUP", "ROMP")
 
 
 def get_chunks_offsets(llut, me_start):
@@ -57,17 +57,52 @@ def fill_range(f, start, end, fill):
     f.write(block[:(end - start) % 4096])
 
 
-def remove_huffman_modules(f, mod_headers, chunks_offsets, base, chunk_size):
+def remove_modules(f, mod_headers, ftpr_offset):
+    comp_str = ("Uncomp.", "Huffman", "LZMA")
     unremovable_huff_chunks = []
+    chunks_offsets = []
+    base = 0
+    chunk_size = 0
 
     for mod_header in mod_headers:
+        name = mod_header[0x04:0x14].rstrip(b"\x00").decode("ascii")
+        offset = unpack("<I", mod_header[0x38:0x3C])[0] + ftpr_offset
+        size = unpack("<I", mod_header[0x40:0x44])[0]
         flags = unpack("<I", mod_header[0x50:0x54])[0]
         comp_type = (flags >> 4) & 7
 
-        if comp_type == 0x01:
-            name = mod_header[0x04:0x14].rstrip(b"\x00").decode("ascii")
+        sys.stdout.write(" {:<16} ({:<7}, ".format(name, comp_str[comp_type]))
 
-            if name in unremovable_huff_modules:
+        if comp_type == 0x00 or comp_type == 0x02:
+            sys.stdout.write("0x{:06x} - 0x{:06x}): "
+                             .format(offset, offset + size))
+
+            if name in unremovable_modules:
+                print("NOT removed, essential")
+            else:
+                fill_range(f, offset, offset + size, b"\xff")
+                print("removed")
+
+        elif comp_type == 0x01:
+            sys.stdout.write("fragmented data    ): ")
+            if not chunks_offsets:
+                f.seek(offset)
+                llut = f.read(4)
+                if llut == b"LLUT":
+                    llut += f.read(0x3c)
+
+                    chunk_count = unpack("<I", llut[0x4:0x8])[0]
+                    base = unpack("<I", llut[0x8:0xc])[0] + 0x10000000
+                    huff_data_len = unpack("<I", llut[0x10:0x14])[0]
+                    chunk_size = unpack("<I", llut[0x30:0x34])[0]
+
+                    llut += f.read(chunk_count * 4 + huff_data_len)
+                    chunks_offsets = get_chunks_offsets(llut, me_start)
+                else:
+                    sys.exit("Huffman modules found, but LLUT is not present")
+
+            if name in unremovable_modules:
+                print("NOT removed, essential")
                 module_base = unpack("<I", mod_header[0x34:0x38])[0]
                 module_size = unpack("<I", mod_header[0x3c:0x40])[0]
                 first_chunk_num = (module_base - base) // chunk_size
@@ -76,62 +111,30 @@ def remove_huffman_modules(f, mod_headers, chunks_offsets, base, chunk_size):
                 unremovable_huff_chunks += \
                     [x for x in chunks_offsets[first_chunk_num:
                      last_chunk_num + 1] if x[0] != 0]
-
-    removable_huff_chunks = []
-
-    for chunk in chunks_offsets:
-        if all(not(unremovable_chunk[0] <= chunk[0] < unremovable_chunk[1] or
-                   unremovable_chunk[0] < chunk[1] <= unremovable_chunk[1])
-               for unremovable_chunk in unremovable_huff_chunks):
-            removable_huff_chunks.append(chunk)
-
-    for removable_chunk in removable_huff_chunks:
-        if removable_chunk[1] > removable_chunk[0]:
-            fill_range(f, removable_chunk[0], removable_chunk[1], b"\xff")
-
-
-def module_removal_report(f, mod_headers, ftpr_offset, lzma_start, lzma_end,
-                          lzma_removed, huffman_removed):
-    for mod_header in mod_headers:
-        name = mod_header[0x04:0x14].rstrip(b"\x00").decode("ascii")
-        flags = unpack("<I", mod_header[0x50:0x54])[0]
-        comp_type = (flags >> 4) & 7
-
-        sys.stdout.write(" {:<16} ".format(name))
-
-        if comp_type == 0x00 or comp_type == 0x02:
-            start = unpack("<I", mod_header[0x38:0x3C])[0] + ftpr_offset
-            size = unpack("<I", mod_header[0x40:0x44])[0]
-            sys.stdout.write("(LZMA, 0x{:06x} - 0x{:06x}): "
-                             .format(start, start + size))
-
-            if start >= lzma_start and start + size <= lzma_end:
-                if lzma_removed:
-                    print("removed")
-                else:
-                    print("NOT removed")
             else:
-                print("outside the LZMA region ({:#x} - {:#x}), skipping"
-                      .format(lzma_start, lzma_end))
-
-        elif comp_type == 0x01:
-            sys.stdout.write("(Huffman, fragmented data ): ")
-
-            if name in unremovable_huff_modules:
-                print("NOT removed, essential")
-            else:
-                if huffman_removed:
-                    print("removed")
-                else:
-                    print("NOT removed")
+                print("removed")
 
         else:
-            print("unknown compression, skipping")
+            sys.stdout.write("0x{:06x} - 0x{:06x}): unknown compression, "
+                             "skipping".format(offset, offset + size))
+
+    if chunks_offsets:
+        removable_huff_chunks = []
+
+        for chunk in chunks_offsets:
+            if all(not(unremovable_chk[0] <= chunk[0] < unremovable_chk[1] or
+                       unremovable_chk[0] < chunk[1] <= unremovable_chk[1])
+                   for unremovable_chk in unremovable_huff_chunks):
+                removable_huff_chunks.append(chunk)
+
+        for removable_chunk in removable_huff_chunks:
+            if removable_chunk[1] > removable_chunk[0]:
+                fill_range(f, removable_chunk[0], removable_chunk[1], b"\xff")
 
 
 if len(sys.argv) != 2 or sys.argv[1] == "-h" or sys.argv[1] == "--help":
     print("Usage: \n"
-          " me_cleaner.py me_image.bin\n"
+          " me_cleaner.py me_or_txe_image.bin\n"
           "or\n"
           " me_cleaner.py full_dump.bin")
 else:
@@ -140,7 +143,7 @@ else:
         magic = f.read(4)
 
         if magic == b"$FPT":
-            print("ME image detected")
+            print("ME/TXE image detected")
             me_start = 0
             f.seek(0, 2)
             me_end = f.tell()
@@ -158,17 +161,18 @@ else:
                 me_end = flreg2 >> 4 & 0x1fff000 | 0xfff
 
                 if me_start >= me_end:
-                    sys.exit("The ME region in this image has been disabled")
+                    sys.exit("The ME/TXE region in this image has been "
+                             "disabled")
 
                 f.seek(me_start + 0x10)
                 if f.read(4) != b"$FPT":
-                    sys.exit("The ME region is corrupted or missing")
+                    sys.exit("The ME/TXE region is corrupted or missing")
 
-                print("The ME region goes from {:#x} to {:#x}"
+                print("The ME/TXE region goes from {:#x} to {:#x}"
                       .format(me_start, me_end))
             else:
-                sys.exit("This image does not contains a ME firmware (NR = {})"
-                         .format(nr))
+                sys.exit("This image does not contains a ME/TXE firmware "
+                         "(NR = {})".format(nr))
         else:
             sys.exit("Unknown image")
 
@@ -238,7 +242,7 @@ else:
             f.seek(ftpr_offset + 0x24)
 
         version = unpack("<HHHH", f.read(0x08))
-        print("ME firmware version {}"
+        print("ME/TXE firmware version {}"
               .format('.'.join(str(i) for i in version)))
 
         if not me11:
@@ -250,57 +254,31 @@ else:
                 f.seek(ftpr_offset + 0x20)
                 num_modules = unpack("<I", f.read(4))[0]
                 f.seek(ftpr_offset + 0x290)
-                mod_headers = [f.read(0x60) for i in range(0, num_modules)]
+                data = f.read(0x84)
 
-                if any(mod_h.startswith(b"$MME") for mod_h in mod_headers):
+                module_header_size = 0
+                if data[0x0:0x4] == b"$MME":
+                    if data[0x60:0x64] == b"$MME":
+                        module_header_size = 0x60
+                    elif data[0x80:0x84] == b"$MME":
+                        module_header_size = 0x80
 
-                    lzma_removed = False
-                    huffman_removed = False
+                if module_header_size != 0:
+                    f.seek(ftpr_offset + 0x290)
+                    mod_headers = [f.read(module_header_size)
+                                   for i in range(0, num_modules)]
 
-                    f.seek(ftpr_offset + 0x18)
-                    size = unpack("<I", f.read(4))[0]
-                    llut_start = ftpr_offset + (size * 4 + 0x3f) & ~0x3f
-
-                    f.seek(llut_start + 0x10)
-                    huff_start, huff_size = unpack("<II", f.read(8))
-                    huff_start += me_start
-                    lzma_start = huff_start + huff_size
-
-                    print("Wiping LZMA section ({:#x} - {:#x})..."
-                          .format(lzma_start, ftpr_offset + ftpr_lenght))
-                    fill_range(f, lzma_start, ftpr_offset + ftpr_lenght,
-                               b"\xff")
-                    lzma_removed = True
-
-                    f.seek(llut_start)
-                    llut = f.read(4)
-                    if llut == b"LLUT":
-                        llut += f.read(0x3c)
-
-                        chunk_count = unpack("<I", llut[0x4:0x8])[0]
-                        base = unpack("<I", llut[0x8:0xc])[0] + 0x10000000
-                        huff_data_len = unpack("<I", llut[0x10:0x14])[0]
-                        chunk_size = unpack("<I", llut[0x30:0x34])[0]
-
-                        llut += f.read(chunk_count * 4 + huff_data_len)
-                        chunks_offsets = get_chunks_offsets(llut, me_start)
-
-                        print("Wiping removable Huffman modules...")
-                        remove_huffman_modules(f, mod_headers, chunks_offsets,
-                                               base, chunk_size)
-                        huffman_removed = True
+                    if all(mod_h.startswith(b"$MME") for mod_h in mod_headers):
+                        remove_modules(f, mod_headers, ftpr_offset)
                     else:
-                        print("Can't find the LLUT region in the FTPR "
-                              "partition")
-
-                    module_removal_report(f, mod_headers, ftpr_offset,
-                                          lzma_start,
-                                          ftpr_offset + ftpr_lenght,
-                                          lzma_removed, huffman_removed)
+                        print("Found less modules than expected in the FTPR "
+                              "partition; skipping modules removal")
                 else:
-                    print("Can't find the $MN2 modules in the FTPR partition")
+                    print("Can't find the module header size; skipping "
+                          "modules removal")
             else:
-                print("Wrong FTPR partition tag ({})".format(tag))
+                print("Wrong FTPR partition tag ({}); skipping modules removal"
+                      .format(tag))
         else:
             print("Modules removal in ME v11 or greater is not yet supported")
 
