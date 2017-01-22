@@ -18,6 +18,8 @@
 
 import sys
 import itertools
+import binascii
+import hashlib
 from struct import pack, unpack
 
 
@@ -130,6 +132,26 @@ def remove_modules(f, mod_headers, ftpr_offset):
         for removable_chunk in removable_huff_chunks:
             if removable_chunk[1] > removable_chunk[0]:
                 fill_range(f, removable_chunk[0], removable_chunk[1], b"\xff")
+
+
+def check_partition_signature(f, offset):
+    f.seek(offset)
+    header = f.read(0x80)
+    modulus = int(binascii.hexlify(f.read(0x100)[::-1]), 16)
+    public_exponent = int(binascii.hexlify(f.read(0x4)[::-1]), 16)
+    signature = int(binascii.hexlify(f.read(0x100)[::-1]), 16)
+
+    header_len = unpack("<I", header[0x4:0x8])[0] * 4
+    manifest_len = unpack("<I", header[0x18:0x1c])[0] * 4
+    f.seek(offset + header_len)
+
+    sha256 = hashlib.sha256()
+    sha256.update(header)
+    sha256.update(f.read(manifest_len - header_len))
+
+    decrypted_sig = pow(signature, public_exponent, modulus)
+
+    return "{:#x}".format(decrypted_sig).endswith(sha256.hexdigest())   # FIXME
 
 
 if len(sys.argv) != 2 or sys.argv[1] == "-h" or sys.argv[1] == "--help":
@@ -281,6 +303,14 @@ else:
                       .format(tag))
         else:
             print("Modules removal in ME v11 or greater is not yet supported")
+
+        sys.stdout.write("Checking FTPR RSA signature... ")
+        if check_partition_signature(f, ftpr_offset):
+            print("VALID")
+        else:
+            print("INVALID!!")
+            sys.exit("The FTPR partition signature is not valid. Is the input "
+                     "ME/TXE image valid?")
 
         print("Done! Good luck!")
 
