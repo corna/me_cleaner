@@ -64,6 +64,7 @@ def remove_modules(f, mod_headers, ftpr_offset):
     chunks_offsets = []
     base = 0
     chunk_size = 0
+    end_addr = 0
 
     for mod_header in mod_headers:
         name = mod_header[0x04:0x14].rstrip(b"\x00").decode("ascii")
@@ -79,6 +80,7 @@ def remove_modules(f, mod_headers, ftpr_offset):
                              .format(offset, offset + size))
 
             if name in unremovable_modules:
+                end_addr = max(end_addr, offset + size)
                 print("NOT removed, essential")
             else:
                 fill_range(f, offset, offset + size, b"\xff")
@@ -131,6 +133,11 @@ def remove_modules(f, mod_headers, ftpr_offset):
         for removable_chunk in removable_huff_chunks:
             if removable_chunk[1] > removable_chunk[0]:
                 fill_range(f, removable_chunk[0], removable_chunk[1], b"\xff")
+
+        end_addr = max(end_addr,
+                       max(unremovable_huff_chunks, key=lambda x: x[1])[1])
+
+    return end_addr
 
 
 def check_partition_signature(f, offset):
@@ -359,12 +366,22 @@ else:
                                    for i in range(0, num_modules)]
 
                     if all(mod_h.startswith(b"$MME") for mod_h in mod_headers):
-                        remove_modules(f, mod_headers, ftpr_offset)
+                        end_addr = remove_modules(f, mod_headers, ftpr_offset)
 
                         new_ftpr_offset += me_start
                         relocate_partition(f, me_start, me_start + 0x30,
                                            new_ftpr_offset, mod_headers)
-                        ftpr_offset = new_ftpr_offset
+
+                        end_addr += new_ftpr_offset - ftpr_offset
+                        end_addr = (end_addr // 0x1000 + 1) * 0x1000
+
+                        print("The ME minimum size is {0} bytes ({0:#x} bytes)"
+                              .format(end_addr - me_start))
+
+                        if me_start > 0:
+                            print("The ME region can be reduced up to:\n"
+                                  " {:08x}:{:08x} me"
+                                  .format(me_start, end_addr - 1))
                     else:
                         print("Found less modules than expected in the FTPR "
                               "partition; skipping modules removal")
