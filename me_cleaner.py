@@ -278,7 +278,7 @@ else:
 
                 module_header_size = 0
                 if data[0x0:0x4] == b"$MME":
-                    if data[0x60:0x64] == b"$MME":
+                    if data[0x60:0x64] == b"$MME" or num_modules == 1:
                         module_header_size = 0x60
                     elif data[0x80:0x84] == b"$MME":
                         module_header_size = 0x80
