@@ -256,11 +256,12 @@ else:
         if f.read(4) == b"$CPD":
             me11 = True
             num_entries = unpack("<I", f.read(4))[0]
-            f.seek(ftpr_offset + 0x10 + num_entries * 0x18 + 0x24)
+            ftpr_mn2_offset = 0x10 + num_entries * 0x18
         else:
             me11 = False
-            f.seek(ftpr_offset + 0x24)
+            ftpr_mn2_offset = 0
 
+        f.seek(ftpr_offset + ftpr_mn2_offset + 0x24)
         version = unpack("<HHHH", f.read(0x08))
         print("ME/TXE firmware version {}"
               .format('.'.join(str(i) for i in version)))
@@ -303,7 +304,7 @@ else:
             print("Modules removal in ME v11 or greater is not yet supported")
 
         sys.stdout.write("Checking FTPR RSA signature... ")
-        if check_partition_signature(f, ftpr_offset):
+        if check_partition_signature(f, ftpr_offset + ftpr_mn2_offset):
             print("VALID")
         else:
             print("INVALID!!")
