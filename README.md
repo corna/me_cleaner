@@ -12,7 +12,8 @@ Currently this tool:
  * Removes any partition except for the fundamental one (FTPR)
  * Removes the EFFS presence flag
  * Corrects the FPT checksum
- * Removes any non-essential LZMA or Huffman compressed module (pre-Skylake only)
+ * Removes any non-essential LZMA or Huffman compressed module from the FTPR partition (pre-Skylake only)
+ * Relocates the remaining parts of the FTPR partition to the top of the ME region (pre-Skylake only)
  * Checks the validity of the RSA signature of the FTPR partition
 
 Don't forget to power cycle your PC after flashing the modified ME/TXE image

@@ -21,6 +21,7 @@ import hashlib
 from struct import pack, unpack
 
 
+new_ftpr_offset = 0x1000
 unremovable_modules = ("BUP", "ROMP")
 
 
@@ -150,6 +151,74 @@ def check_partition_signature(f, offset):
     decrypted_sig = pow(signature, public_exponent, modulus)
 
     return "{:#x}".format(decrypted_sig).endswith(sha256.hexdigest())   # FIXME
+
+
+def move_range(f, offset_from, size, offset_to, fill):
+    for i in range(0, size, 4096):
+        f.seek(offset_from + i, 0)
+        block = f.read(4096 if size - i >= 4096 else size - i)
+        f.seek(offset_from + i, 0)
+        f.write(fill * 4096 if size - i >= 4096 else fill * (size - i))
+        f.seek(offset_to + i, 0)
+        f.write(block)
+
+
+def relocate_partition(f, me_start, partition_header_offset, new_offset,
+                       mod_headers):
+    f.seek(partition_header_offset)
+    name = f.read(4).rstrip(b"\x00").decode("ascii")
+    f.seek(partition_header_offset + 0x8)
+    old_offset, partition_size = unpack("<II", f.read(0x8))
+    old_offset += me_start
+    offset_diff = new_offset - old_offset
+    print("Relocating {} to {:#x} - {:#x}..."
+          .format(name, new_offset, new_offset + partition_size))
+
+    print(" Adjusting FPT entry...")
+    f.seek(partition_header_offset + 0x8)
+    f.write(pack("<I", new_offset - me_start))
+
+    llut_start = 0
+    for mod_header in mod_headers:
+        if (unpack("<I", mod_header[0x50:0x54])[0] >> 4) & 7 == 0x01:
+            llut_start = unpack("<I", mod_header[0x38:0x3C])[0] + old_offset
+            break
+
+    if llut_start != 0:
+        f.seek(llut_start, 0)
+        if f.read(4) == b"LLUT":
+            print(" Adjusting LUT start offset...")
+            f.seek(llut_start + 0x0c, 0)
+            old_lut_offset = unpack("<I", f.read(4))[0]
+            f.seek(llut_start + 0x0c, 0)
+            f.write(pack("<I", old_lut_offset + offset_diff))
+
+            print(" Adjusting Huffman start offset...")
+            f.seek(llut_start + 0x14, 0)
+            old_huff_offset = unpack("<I", f.read(4))[0]
+            f.seek(llut_start + 0x14, 0)
+            f.write(pack("<I", old_huff_offset + offset_diff))
+
+            print(" Adjusting chunks offsets...")
+            f.seek(llut_start + 0x4, 0)
+            chunk_count = unpack("<I", f.read(4))[0]
+            f.seek(llut_start + 0x40, 0)
+            chunks = bytearray(chunk_count * 4)
+            f.readinto(chunks)
+            for i in range(0, chunk_count * 4, 4):
+                if chunks[i + 3] != 0x80:
+                    chunks[i:i + 3] = \
+                        pack("<I", unpack("<I", chunks[i:i + 3] +
+                             b"\x00")[0] + offset_diff)[0:3]
+            f.seek(llut_start + 0x40, 0)
+            f.write(chunks)
+        else:
+            sys.exit("Huffman modules present but no LLUT found!")
+    else:
+        print(" No Huffman modules found")
+
+    print(" Moving data...")
+    move_range(f, old_offset, partition_size, new_offset, b"\xff")
 
 
 if len(sys.argv) != 2 or sys.argv[1] == "-h" or sys.argv[1] == "--help":
@@ -291,6 +360,11 @@ else:
 
                     if all(mod_h.startswith(b"$MME") for mod_h in mod_headers):
                         remove_modules(f, mod_headers, ftpr_offset)
+
+                        new_ftpr_offset += me_start
+                        relocate_partition(f, me_start, me_start + 0x30,
+                                           new_ftpr_offset, mod_headers)
+                        ftpr_offset = new_ftpr_offset
                     else:
                         print("Found less modules than expected in the FTPR "
                               "partition; skipping modules removal")
