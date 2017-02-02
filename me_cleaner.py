@@ -373,14 +373,19 @@ if __name__ == "__main__":
             flags &= ~(0x00000001)
             f.write_to(me_start + 0x24, pack("<I", flags))
 
-            f.seek(me_start)
-            header = bytearray(f.read(0x30))
+            if me11:
+                f.seek(me_start + 0x10)
+                header = bytearray(f.read(0x20))
+            else:
+                f.seek(me_start)
+                header = bytearray(f.read(0x30))
             checksum = (0x100 - (sum(header) - header[0x1b]) & 0xff) & 0xff
 
             print("Correcting checksum (0x{:02x})...".format(checksum))
             # The checksum is just the two's complement of the sum of the
-            # first 0x30 bytes (except for 0x1b, the checksum itself). In other
-            # words, the sum of the first 0x30 bytes must be always 0x00.
+            # first 0x30 bytes in ME < 11 or bytes 0x10:0x30 in ME >= 11
+            # (except for 0x1b, the checksum itself). In other words, the sum
+            # of those bytes must be always 0x00.
             f.write_to(me_start + 0x1b, pack("B", checksum))
 
             if not me11:
