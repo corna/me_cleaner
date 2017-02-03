@@ -19,6 +19,7 @@ import itertools
 import binascii
 import hashlib
 import argparse
+import shutil
 from struct import pack, unpack
 
 
@@ -286,6 +287,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tool to remove as much code "
                                      "as possible from Intel ME/TXE firmwares")
     parser.add_argument("file", help="ME/TXE image or full dump")
+    parser.add_argument("-O", "--output", help="save the modified image in a "
+                        "separate file, instead of modifying the original "
+                        "file")
     parser.add_argument("-r", "--relocate", help="relocate the FTPR partition "
                         "to the top of the ME region", action="store_true")
     parser.add_argument("-k", "--keep-modules", help="don't remove the FTPR "
@@ -295,178 +299,180 @@ if __name__ == "__main__":
                         action="store_true")
     args = parser.parse_args()
 
-    with open(args.file, "rb" if args.check else "r+b") as fu:
-        fu.seek(0x10)
-        magic = fu.read(4)
+    f = open(args.file, "rb" if args.check or args.output else "r+b")
+    f.seek(0x10)
+    magic = f.read(4)
 
-        if magic == b"$FPT":
-            print("ME/TXE image detected")
-            me_start = 0
-            fu.seek(0, 2)
-            me_end = fu.tell()
+    if magic == b"$FPT":
+        print("ME/TXE image detected")
+        me_start = 0
+        f.seek(0, 2)
+        me_end = f.tell()
 
-        elif magic == b"\x5a\xa5\xf0\x0f":
-            print("Full image detected")
-            fu.seek(0x14)
-            flmap0 = unpack("<I", fu.read(4))[0]
-            nr = flmap0 >> 24 & 0x7
-            frba = flmap0 >> 12 & 0xff0
-            if nr >= 2:
-                fu.seek(frba + 0x8)
-                flreg2 = unpack("<I", fu.read(4))[0]
-                me_start = (flreg2 & 0x1fff) << 12
-                me_end = flreg2 >> 4 & 0x1fff000 | 0xfff + 1
+    elif magic == b"\x5a\xa5\xf0\x0f":
+        print("Full image detected")
+        f.seek(0x14)
+        flmap0 = unpack("<I", f.read(4))[0]
+        nr = flmap0 >> 24 & 0x7
+        frba = flmap0 >> 12 & 0xff0
+        if nr >= 2:
+            f.seek(frba + 0x8)
+            flreg2 = unpack("<I", f.read(4))[0]
+            me_start = (flreg2 & 0x1fff) << 12
+            me_end = flreg2 >> 4 & 0x1fff000 | 0xfff + 1
 
-                if me_start >= me_end:
-                    sys.exit("The ME/TXE region in this image has been "
-                             "disabled")
+            if me_start >= me_end:
+                sys.exit("The ME/TXE region in this image has been disabled")
 
-                fu.seek(me_start + 0x10)
-                if fu.read(4) != b"$FPT":
-                    sys.exit("The ME/TXE region is corrupted or missing")
+            f.seek(me_start + 0x10)
+            if f.read(4) != b"$FPT":
+                sys.exit("The ME/TXE region is corrupted or missing")
 
-                print("The ME/TXE region goes from {:#x} to {:#x}"
-                      .format(me_start, me_end))
-            else:
-                sys.exit("This image does not contains a ME/TXE firmware "
-                         "(NR = {})".format(nr))
+            print("The ME/TXE region goes from {:#x} to {:#x}"
+                  .format(me_start, me_end))
         else:
-            sys.exit("Unknown image")
+            sys.exit("This image does not contains a ME/TXE firmware NR = {})"
+                     .format(nr))
+    else:
+        sys.exit("Unknown image")
 
-        print("Found FPT header at {:#x}".format(me_start + 0x10))
+    print("Found FPT header at {:#x}".format(me_start + 0x10))
 
-        f = regionFile(fu, me_start, me_end)
+    f.seek(me_start + 0x14)
+    entries = unpack("<I", f.read(4))[0]
+    print("Found {} partition(s)".format(entries))
 
-        f.seek(me_start + 0x14)
-        entries = unpack("<I", f.read(4))[0]
-        print("Found {} partition(s)".format(entries))
+    f.seek(me_start + 0x14)
+    header_len = unpack("B", f.read(1))[0]
 
-        f.seek(me_start + 0x14)
-        header_len = unpack("B", f.read(1))[0]
+    f.seek(me_start + 0x30)
+    partitions = f.read(entries * 0x20)
 
-        f.seek(me_start + 0x30)
-        partitions = f.read(entries * 0x20)
+    ftpr_header = b""
 
-        ftpr_header = b""
+    for i in range(entries):
+        if partitions[i * 0x20:(i * 0x20) + 4] == b"FTPR":
+            ftpr_header = partitions[i * 0x20:(i + 1) * 0x20]
+            break
 
-        for i in range(entries):
-            if partitions[i * 0x20:(i * 0x20) + 4] == b"FTPR":
-                ftpr_header = partitions[i * 0x20:(i + 1) * 0x20]
-                break
+    if ftpr_header == b"":
+        sys.exit("FTPR header not found, this image doesn't seem to be valid")
 
-        if ftpr_header == b"":
-            sys.exit("FTPR header not found, this image doesn't seem to be "
-                     "valid")
+    ftpr_offset, ftpr_lenght = unpack("<II", ftpr_header[0x08:0x10])
+    ftpr_offset += me_start
+    print("Found FTPR header: FTPR partition spans from {:#x} to {:#x}"
+          .format(ftpr_offset, ftpr_offset + ftpr_lenght))
 
-        ftpr_offset, ftpr_lenght = unpack("<II", ftpr_header[0x08:0x10])
-        ftpr_offset += me_start
-        print("Found FTPR header: FTPR partition spans from {:#x} to {:#x}"
-              .format(ftpr_offset, ftpr_offset + ftpr_lenght))
+    f.seek(ftpr_offset)
+    if f.read(4) == b"$CPD":
+        me11 = True
+        num_entries = unpack("<I", f.read(4))[0]
+        ftpr_mn2_offset = 0x10 + num_entries * 0x18
+    else:
+        me11 = False
+        ftpr_mn2_offset = 0
 
-        f.seek(ftpr_offset)
-        if f.read(4) == b"$CPD":
-            me11 = True
-            num_entries = unpack("<I", f.read(4))[0]
-            ftpr_mn2_offset = 0x10 + num_entries * 0x18
+    f.seek(ftpr_offset + ftpr_mn2_offset + 0x24)
+    version = unpack("<HHHH", f.read(0x08))
+    print("ME/TXE firmware version {}"
+          .format('.'.join(str(i) for i in version)))
+
+    if not args.check:
+        if args.output:
+            f.close()
+            shutil.copy(args.file, args.output)
+            f = open(args.output, "r+b")
+
+        rf = regionFile(f, me_start, me_end)
+
+        print("Removing extra partitions...")
+        rf.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
+        rf.fill_range(ftpr_offset + ftpr_lenght, me_end, b"\xff")
+
+        print("Removing extra partition entries in FPT...")
+        rf.write_to(me_start + 0x30, ftpr_header)
+        rf.write_to(me_start + 0x14, pack("<I", 1))
+
+        print("Removing EFFS presence flag...")
+        rf.seek(me_start + 0x24)
+        flags = unpack("<I", rf.read(4))[0]
+        flags &= ~(0x00000001)
+        rf.write_to(me_start + 0x24, pack("<I", flags))
+
+        if me11:
+            rf.seek(me_start + 0x10)
+            header = bytearray(rf.read(0x20))
         else:
-            me11 = False
-            ftpr_mn2_offset = 0
+            rf.seek(me_start)
+            header = bytearray(rf.read(0x30))
+        checksum = (0x100 - (sum(header) - header[0x1b]) & 0xff) & 0xff
 
-        f.seek(ftpr_offset + ftpr_mn2_offset + 0x24)
-        version = unpack("<HHHH", f.read(0x08))
-        print("ME/TXE firmware version {}"
-              .format('.'.join(str(i) for i in version)))
+        print("Correcting checksum (0x{:02x})...".format(checksum))
+        # The checksum is just the two's complement of the sum of the first
+        # 0x30 bytes in ME < 11 or bytes 0x10:0x30 in ME >= 11 (except for
+        # 0x1b, the checksum itself). In other words, the sum of those bytes
+        # must be always 0x00.
+        rf.write_to(me_start + 0x1b, pack("B", checksum))
 
-        if not args.check:
-            print("Removing extra partitions...")
-            f.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
-            f.fill_range(ftpr_offset + ftpr_lenght, me_end, b"\xff")
+        if not me11:
+            print("Reading FTPR modules list...")
+            rf.seek(ftpr_offset + 0x1c)
+            tag = rf.read(4)
 
-            print("Removing extra partition entries in FPT...")
-            f.write_to(me_start + 0x30, ftpr_header)
-            f.write_to(me_start + 0x14, pack("<I", 1))
+            if tag == b"$MN2":
+                rf.seek(ftpr_offset + 0x20)
+                num_modules = unpack("<I", rf.read(4))[0]
+                rf.seek(ftpr_offset + 0x290)
+                data = rf.read(0x84)
 
-            print("Removing EFFS presence flag...")
-            f.seek(me_start + 0x24)
-            flags = unpack("<I", f.read(4))[0]
-            flags &= ~(0x00000001)
-            f.write_to(me_start + 0x24, pack("<I", flags))
+                module_header_size = 0
+                if data[0x0:0x4] == b"$MME":
+                    if data[0x60:0x64] == b"$MME" or num_modules == 1:
+                        module_header_size = 0x60
+                    elif data[0x80:0x84] == b"$MME":
+                        module_header_size = 0x80
 
-            if me11:
-                f.seek(me_start + 0x10)
-                header = bytearray(f.read(0x20))
-            else:
-                f.seek(me_start)
-                header = bytearray(f.read(0x30))
-            checksum = (0x100 - (sum(header) - header[0x1b]) & 0xff) & 0xff
+                if module_header_size != 0:
+                    rf.seek(ftpr_offset + 0x290)
+                    mod_headers = [rf.read(module_header_size)
+                                   for i in range(0, num_modules)]
 
-            print("Correcting checksum (0x{:02x})...".format(checksum))
-            # The checksum is just the two's complement of the sum of the
-            # first 0x30 bytes in ME < 11 or bytes 0x10:0x30 in ME >= 11
-            # (except for 0x1b, the checksum itself). In other words, the sum
-            # of those bytes must be always 0x00.
-            f.write_to(me_start + 0x1b, pack("B", checksum))
-
-            if not me11:
-                print("Reading FTPR modules list...")
-                f.seek(ftpr_offset + 0x1c)
-                tag = f.read(4)
-
-                if tag == b"$MN2":
-                    f.seek(ftpr_offset + 0x20)
-                    num_modules = unpack("<I", f.read(4))[0]
-                    f.seek(ftpr_offset + 0x290)
-                    data = f.read(0x84)
-
-                    module_header_size = 0
-                    if data[0x0:0x4] == b"$MME":
-                        if data[0x60:0x64] == b"$MME" or num_modules == 1:
-                            module_header_size = 0x60
-                        elif data[0x80:0x84] == b"$MME":
-                            module_header_size = 0x80
-
-                    if module_header_size != 0:
-                        f.seek(ftpr_offset + 0x290)
-                        mod_headers = [f.read(module_header_size)
-                                       for i in range(0, num_modules)]
-
-                        if all(hdr.startswith(b"$MME") for hdr in mod_headers):
-                            if args.keep_modules:
-                                end_addr = ftpr_offset + ftpr_lenght
-                            else:
-                                end_addr = remove_modules(f, mod_headers,
-                                                          ftpr_offset, me_end)
-
-                            if args.relocate:
-                                new_ftpr_offset = relocate_partition(f,
-                                                   me_start, me_end,
-                                                   me_start + 0x30,
-                                                   min_ftpr_offset + me_start,
-                                                   mod_headers)
-                                end_addr += new_ftpr_offset - ftpr_offset
-                                ftpr_offset = new_ftpr_offset
-
-                            end_addr = (end_addr // 0x1000 + 1) * 0x1000
-
-                            print("The ME minimum size is {0} bytes "
-                                  "({0:#x} bytes)".format(end_addr - me_start))
-
-                            if me_start > 0:
-                                print("The ME region can be reduced up to:\n"
-                                      " {:08x}:{:08x} me"
-                                      .format(me_start, end_addr - 1))
+                    if all(hdr.startswith(b"$MME") for hdr in mod_headers):
+                        if args.keep_modules:
+                            end_addr = ftpr_offset + ftpr_lenght
                         else:
-                            print("Found less modules than expected in the "
-                                  "FTPR partition; skipping modules removal")
+                            end_addr = remove_modules(rf, mod_headers,
+                                                      ftpr_offset, me_end)
+
+                        if args.relocate:
+                            new_ftpr_offset = relocate_partition(rf,
+                                               me_start, me_end,
+                                               me_start + 0x30,
+                                               min_ftpr_offset + me_start,
+                                               mod_headers)
+                            end_addr += new_ftpr_offset - ftpr_offset
+                            ftpr_offset = new_ftpr_offset
+
+                        end_addr = (end_addr // 0x1000 + 1) * 0x1000
+
+                        print("The ME minimum size is {0} bytes ({0:#x} bytes)"
+                              .format(end_addr - me_start))
+
+                        if me_start > 0:
+                            print("The ME region can be reduced up to:\n"
+                                  " {:08x}:{:08x} me"
+                                  .format(me_start, end_addr - 1))
                     else:
-                        print("Can't find the module header size; skipping "
-                              "modules removal")
+                        print("Found less modules than expected in the FTPR "
+                              "partition; skipping modules removal")
                 else:
-                    print("Wrong FTPR partition tag ({}); skipping modules "
-                          "removal".format(tag))
+                    print("Can't find the module header size; skipping "
+                          "modules removal")
             else:
-                print("Modules removal in ME v11 or greater is not yet "
-                      "supported")
+                print("Wrong FTPR partition tag ({}); skipping modules removal"
+                      .format(tag))
+        else:
+            print("Modules removal in ME v11 or greater is not yet supported")
 
         sys.stdout.write("Checking FTPR RSA signature... ")
         if check_partition_signature(f, ftpr_offset + ftpr_mn2_offset):
@@ -475,6 +481,8 @@ if __name__ == "__main__":
             print("INVALID!!")
             sys.exit("The FTPR partition signature is not valid. Is the input "
                      "ME/TXE image valid?")
+
+        f.close()
 
         if not args.check:
             print("Done! Good luck!")
