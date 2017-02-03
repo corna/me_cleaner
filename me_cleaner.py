@@ -22,7 +22,7 @@ import argparse
 from struct import pack, unpack
 
 
-new_ftpr_offset = 0x1000
+min_ftpr_offset = 0x60
 unremovable_modules = ("BUP", "ROMP")
 
 
@@ -212,18 +212,12 @@ def check_partition_signature(f, offset):
 
 def relocate_partition(f, me_start, me_end, partition_header_offset,
                        new_offset, mod_headers):
+
     f.seek(partition_header_offset)
     name = f.read(4).rstrip(b"\x00").decode("ascii")
     f.seek(partition_header_offset + 0x8)
     old_offset, partition_size = unpack("<II", f.read(0x8))
     old_offset += me_start
-    offset_diff = new_offset - old_offset
-    print("Relocating {} to {:#x} - {:#x}..."
-          .format(name, new_offset, new_offset + partition_size))
-
-    print(" Adjusting FPT entry...")
-    f.write_to(partition_header_offset + 0x8,
-               pack("<I", new_offset - me_start))
 
     llut_start = 0
     for mod_header in mod_headers:
@@ -232,13 +226,31 @@ def relocate_partition(f, me_start, me_end, partition_header_offset,
             break
 
     if llut_start != 0:
+        # Bytes 0x9:0xb of the LLUT (bytes 0x1:0x3 of the AddrBase) are added
+        # to the SpiBase (bytes 0xc:0x10 of the LLUT) to compute the final
+        # start of the LLUT. Since AddrBase is not modifiable, we can act only
+        # on SpiBase and here we compute the minimum allowed new_offset.
+        f.seek(llut_start + 0x9)
+        lut_start_corr = unpack("<H", f.read(2))[0]
+        new_offset = max(new_offset,
+                         lut_start_corr + me_start - llut_start - 0x40 +
+                         old_offset)
+        new_offset = ((new_offset + 0x1f) // 0x20) * 0x20
+
+    offset_diff = new_offset - old_offset
+    print("Relocating {} to {:#x} - {:#x}..."
+          .format(name, new_offset, new_offset + partition_size))
+
+    print(" Adjusting FPT entry...")
+    f.write_to(partition_header_offset + 0x8,
+               pack("<I", new_offset - me_start))
+
+    if llut_start != 0:
         f.seek(llut_start)
         if f.read(4) == b"LLUT":
             print(" Adjusting LUT start offset...")
-            f.seek(llut_start + 0x0c)
-            old_lut_offset = unpack("<I", f.read(4))[0]
-            f.write_to(llut_start + 0x0c,
-                       pack("<I", old_lut_offset + offset_diff))
+            lut_offset = llut_start + offset_diff + 0x40 - lut_start_corr
+            f.write_to(llut_start + 0x0c, pack("<I", lut_offset))
 
             print(" Adjusting Huffman start offset...")
             f.seek(llut_start + 0x14)
@@ -266,6 +278,8 @@ def relocate_partition(f, me_start, me_end, partition_header_offset,
     print(" Moving data...")
     partition_size = min(partition_size, me_end - old_offset)
     f.move_range(old_offset, partition_size, new_offset, b"\xff")
+
+    return new_offset
 
 
 if __name__ == "__main__":
@@ -424,10 +438,10 @@ if __name__ == "__main__":
                                                           ftpr_offset, me_end)
 
                             if args.relocate:
-                                new_ftpr_offset += me_start
-                                relocate_partition(f, me_start, me_end,
+                                new_ftpr_offset = relocate_partition(f,
+                                                   me_start, me_end,
                                                    me_start + 0x30,
-                                                   new_ftpr_offset,
+                                                   min_ftpr_offset + me_start,
                                                    mod_headers)
                                 end_addr += new_ftpr_offset - ftpr_offset
                                 ftpr_offset = new_ftpr_offset
