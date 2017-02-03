@@ -55,10 +55,12 @@ class regionFile:
 
     def fill_range(self, start, end, fill):
         if start >= self.region_start and end <= self.region_end:
-            block = fill * 4096
-            self.f.seek(start)
-            self.f.writelines(itertools.repeat(block, (end - start) // 4096))
-            self.f.write(block[:(end - start) % 4096])
+            if start < end:
+                block = fill * 4096
+                self.f.seek(start)
+                self.f.writelines(itertools.repeat(block,
+                                                   (end - start) // 4096))
+                self.f.write(block[:(end - start) % 4096])
         else:
             raise OutOfRegionException()
 
@@ -104,7 +106,7 @@ def get_chunks_offsets(llut, me_start):
     return offsets
 
 
-def remove_modules(f, mod_headers, ftpr_offset):
+def remove_modules(f, mod_headers, ftpr_offset, me_end):
     comp_str = ("Uncomp.", "Huffman", "LZMA")
     unremovable_huff_chunks = []
     chunks_offsets = []
@@ -129,7 +131,8 @@ def remove_modules(f, mod_headers, ftpr_offset):
                 end_addr = max(end_addr, offset + size)
                 print("NOT removed, essential")
             else:
-                f.fill_range(offset, offset + size, b"\xff")
+                end = min(offset + size, me_end)
+                f.fill_range(offset, end, b"\xff")
                 print("removed")
 
         elif comp_type == 0x01:
@@ -178,7 +181,8 @@ def remove_modules(f, mod_headers, ftpr_offset):
 
         for removable_chunk in removable_huff_chunks:
             if removable_chunk[1] > removable_chunk[0]:
-                f.fill_range(removable_chunk[0], removable_chunk[1], b"\xff")
+                end = min(removable_chunk[1], me_end)
+                f.fill_range(removable_chunk[0], end, b"\xff")
 
         end_addr = max(end_addr,
                        max(unremovable_huff_chunks, key=lambda x: x[1])[1])
@@ -206,8 +210,8 @@ def check_partition_signature(f, offset):
     return "{:#x}".format(decrypted_sig).endswith(sha256.hexdigest())   # FIXME
 
 
-def relocate_partition(f, me_start, partition_header_offset, new_offset,
-                       mod_headers):
+def relocate_partition(f, me_start, me_end, partition_header_offset,
+                       new_offset, mod_headers):
     f.seek(partition_header_offset)
     name = f.read(4).rstrip(b"\x00").decode("ascii")
     f.seek(partition_header_offset + 0x8)
@@ -260,6 +264,7 @@ def relocate_partition(f, me_start, partition_header_offset, new_offset,
         print(" No Huffman modules found")
 
     print(" Moving data...")
+    partition_size = min(partition_size, me_end - old_offset)
     f.move_range(old_offset, partition_size, new_offset, b"\xff")
 
 
@@ -416,11 +421,11 @@ if __name__ == "__main__":
                                 end_addr = ftpr_offset + ftpr_lenght
                             else:
                                 end_addr = remove_modules(f, mod_headers,
-                                                          ftpr_offset)
+                                                          ftpr_offset, me_end)
 
                             if args.relocate:
                                 new_ftpr_offset += me_start
-                                relocate_partition(f, me_start,
+                                relocate_partition(f, me_start, me_end,
                                                    me_start + 0x30,
                                                    new_ftpr_offset,
                                                    mod_headers)
