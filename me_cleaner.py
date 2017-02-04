@@ -146,10 +146,9 @@ def remove_modules(f, mod_headers, ftpr_offset, me_end):
 
                     chunk_count = unpack("<I", llut[0x4:0x8])[0]
                     base = unpack("<I", llut[0x8:0xc])[0] + 0x10000000
-                    huff_data_len = unpack("<I", llut[0x10:0x14])[0]
                     chunk_size = unpack("<I", llut[0x30:0x34])[0]
 
-                    llut += f.read(chunk_count * 4 + huff_data_len)
+                    llut += f.read(chunk_count * 4)
                     chunks_offsets = get_chunks_offsets(llut, me_start)
                 else:
                     sys.exit("Huffman modules found, but LLUT is not present")
@@ -474,15 +473,15 @@ if __name__ == "__main__":
         else:
             print("Modules removal in ME v11 or greater is not yet supported")
 
-        sys.stdout.write("Checking FTPR RSA signature... ")
-        if check_partition_signature(f, ftpr_offset + ftpr_mn2_offset):
-            print("VALID")
-        else:
-            print("INVALID!!")
-            sys.exit("The FTPR partition signature is not valid. Is the input "
-                     "ME/TXE image valid?")
+    sys.stdout.write("Checking FTPR RSA signature... ")
+    if check_partition_signature(f, ftpr_offset + ftpr_mn2_offset):
+        print("VALID")
+    else:
+        print("INVALID!!")
+        sys.exit("The FTPR partition signature is not valid. Is the input "
+                 "ME/TXE image valid?")
 
-        f.close()
+    f.close()
 
-        if not args.check:
-            print("Done! Good luck!")
+    if not args.check:
+        print("Done! Good luck!")
