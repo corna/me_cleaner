@@ -249,7 +249,8 @@ def relocate_partition(f, me_start, me_end, partition_header_offset,
         f.seek(llut_start)
         if f.read(4) == b"LLUT":
             print(" Adjusting LUT start offset...")
-            lut_offset = llut_start + offset_diff + 0x40 - lut_start_corr
+            lut_offset = llut_start + offset_diff + 0x40 - \
+                         lut_start_corr - me_start
             f.write_to(llut_start + 0x0c, pack("<I", lut_offset))
 
             print(" Adjusting Huffman start offset...")
