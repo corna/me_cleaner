@@ -311,12 +311,15 @@ if __name__ == "__main__":
     elif magic == b"\x5a\xa5\xf0\x0f":
         print("Full image detected")
         f.seek(0x14)
-        flmap0 = unpack("<I", f.read(4))[0]
+        flmap0, flmap1 = unpack("<II", f.read(8))
         nr = flmap0 >> 24 & 0x7
         frba = flmap0 >> 12 & 0xff0
+        fmba = (flmap1 & 0xff) << 4
         if nr >= 2:
-            f.seek(frba + 0x8)
-            flreg2 = unpack("<I", f.read(4))[0]
+            f.seek(frba)
+            flreg0, flreg1, flreg2 = unpack("<III", f.read(12))
+            fd_start = (flreg0 & 0x1fff) << 12
+            fd_end = flreg0 >> 4 & 0x1fff000 | 0xfff + 1
             me_start = (flreg2 & 0x1fff) << 12
             me_end = flreg2 >> 4 & 0x1fff000 | 0xfff + 1
 
@@ -382,28 +385,33 @@ if __name__ == "__main__":
             shutil.copy(args.file, args.output)
             f = open(args.output, "r+b")
 
-        rf = regionFile(f, me_start, me_end)
+        mef = regionFile(f, me_start, me_end)
 
         print("Removing extra partitions...")
-        rf.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
-        rf.fill_range(ftpr_offset + ftpr_lenght, me_end, b"\xff")
+        mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
+        mef.fill_range(ftpr_offset + ftpr_lenght, me_end, b"\xff")
 
         print("Removing extra partition entries in FPT...")
-        rf.write_to(me_start + 0x30, ftpr_header)
-        rf.write_to(me_start + 0x14, pack("<I", 1))
+        mef.write_to(me_start + 0x30, ftpr_header)
+        mef.write_to(me_start + 0x14, pack("<I", 1))
 
         print("Removing EFFS presence flag...")
-        rf.seek(me_start + 0x24)
-        flags = unpack("<I", rf.read(4))[0]
+        mef.seek(me_start + 0x24)
+        flags = unpack("<I", mef.read(4))[0]
         flags &= ~(0x00000001)
-        rf.write_to(me_start + 0x24, pack("<I", flags))
+        mef.write_to(me_start + 0x24, pack("<I", flags))
+
+        if me_start > 0:
+            print("Removing ME/TXE R/W access to the other flash regions...")
+            fdf = regionFile(f, fd_start, fd_end)
+            fdf.write_to(fmba + 0x4, pack("<I", 0x04040000))
 
         if me11:
-            rf.seek(me_start + 0x10)
-            header = bytearray(rf.read(0x20))
+            mef.seek(me_start + 0x10)
+            header = bytearray(mef.read(0x20))
         else:
-            rf.seek(me_start)
-            header = bytearray(rf.read(0x30))
+            mef.seek(me_start)
+            header = bytearray(mef.read(0x30))
         checksum = (0x100 - (sum(header) - header[0x1b]) & 0xff) & 0xff
 
         print("Correcting checksum (0x{:02x})...".format(checksum))
@@ -411,18 +419,18 @@ if __name__ == "__main__":
         # 0x30 bytes in ME < 11 or bytes 0x10:0x30 in ME >= 11 (except for
         # 0x1b, the checksum itself). In other words, the sum of those bytes
         # must be always 0x00.
-        rf.write_to(me_start + 0x1b, pack("B", checksum))
+        mef.write_to(me_start + 0x1b, pack("B", checksum))
 
         if not me11:
             print("Reading FTPR modules list...")
-            rf.seek(ftpr_offset + 0x1c)
-            tag = rf.read(4)
+            mef.seek(ftpr_offset + 0x1c)
+            tag = mef.read(4)
 
             if tag == b"$MN2":
-                rf.seek(ftpr_offset + 0x20)
-                num_modules = unpack("<I", rf.read(4))[0]
-                rf.seek(ftpr_offset + 0x290)
-                data = rf.read(0x84)
+                mef.seek(ftpr_offset + 0x20)
+                num_modules = unpack("<I", mef.read(4))[0]
+                mef.seek(ftpr_offset + 0x290)
+                data = mef.read(0x84)
 
                 module_header_size = 0
                 if data[0x0:0x4] == b"$MME":
@@ -432,19 +440,19 @@ if __name__ == "__main__":
                         module_header_size = 0x80
 
                 if module_header_size != 0:
-                    rf.seek(ftpr_offset + 0x290)
-                    mod_headers = [rf.read(module_header_size)
+                    mef.seek(ftpr_offset + 0x290)
+                    mod_headers = [mef.read(module_header_size)
                                    for i in range(0, num_modules)]
 
                     if all(hdr.startswith(b"$MME") for hdr in mod_headers):
                         if args.keep_modules:
                             end_addr = ftpr_offset + ftpr_lenght
                         else:
-                            end_addr = remove_modules(rf, mod_headers,
+                            end_addr = remove_modules(mef, mod_headers,
                                                       ftpr_offset, me_end)
 
                         if args.relocate:
-                            new_ftpr_offset = relocate_partition(rf,
+                            new_ftpr_offset = relocate_partition(mef,
                                                me_start, me_end,
                                                me_start + 0x30,
                                                min_ftpr_offset + me_start,
