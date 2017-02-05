@@ -294,6 +294,10 @@ if __name__ == "__main__":
                         "to the top of the ME region", action="store_true")
     parser.add_argument("-k", "--keep-modules", help="don't remove the FTPR "
                         "modules, even when possible", action="store_true")
+    parser.add_argument("-d", "--descriptor", help="remove the ME/TXE "
+                        "Read/Write permissions to the other regions on the "
+                        "flash from the Intel Flash Descriptor (requires a "
+                        "full dump)", action="store_true")
     parser.add_argument("-c", "--check", help="verify the integrity of the "
                         "fundamental parts of the firmware and exit",
                         action="store_true")
@@ -308,6 +312,9 @@ if __name__ == "__main__":
         me_start = 0
         f.seek(0, 2)
         me_end = f.tell()
+
+        if args.descriptor:
+            sys.exit("-d requires a full dump")
 
     elif magic == b"\x5a\xa5\xf0\x0f":
         print("Full image detected")
@@ -402,7 +409,7 @@ if __name__ == "__main__":
         flags &= ~(0x00000001)
         mef.write_to(me_start + 0x24, pack("<I", flags))
 
-        if me_start > 0:
+        if args.descriptor:
             print("Removing ME/TXE R/W access to the other flash regions...")
             fdf = regionFile(f, fd_start, fd_end)
             fdf.write_to(fmba + 0x4, pack("<I", 0x04040000))
