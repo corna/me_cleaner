@@ -23,7 +23,7 @@ import shutil
 from struct import pack, unpack
 
 
-min_ftpr_offset = 0x60
+min_ftpr_offset = 0x400
 unremovable_modules = ("BUP", "ROMP")
 
 
