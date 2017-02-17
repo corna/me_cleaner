@@ -24,6 +24,7 @@ from struct import pack, unpack
 
 
 min_ftpr_offset = 0x400
+spared_blocks = 4
 unremovable_modules = ("BUP", "ROMP")
 
 
@@ -469,9 +470,10 @@ if __name__ == "__main__":
                             ftpr_offset = new_ftpr_offset
 
                         end_addr = (end_addr // 0x1000 + 1) * 0x1000
+                        end_addr += spared_blocks * 0x1000
 
-                        print("The ME minimum size is {0} bytes ({0:#x} bytes)"
-                              .format(end_addr - me_start))
+                        print("The ME minimum size should be {0} bytes "
+                              "({0:#x} bytes)".format(end_addr - me_start))
 
                         if me_start > 0:
                             print("The ME region can be reduced up to:\n"
