@@ -299,6 +299,9 @@ if __name__ == "__main__":
                         "Read/Write permissions to the other regions on the "
                         "flash from the Intel Flash Descriptor (requires a "
                         "full dump)", action="store_true")
+    parser.add_argument("-t", "--truncate", help="truncate the empty part of "
+                        "the firmware (requires a separated ME/TXE image)",
+                        action="store_true")
     parser.add_argument("-c", "--check", help="verify the integrity of the "
                         "fundamental parts of the firmware and exit",
                         action="store_true")
@@ -310,15 +313,20 @@ if __name__ == "__main__":
 
     if magic == b"$FPT":
         print("ME/TXE image detected")
-        me_start = 0
-        f.seek(0, 2)
-        me_end = f.tell()
 
         if args.descriptor:
             sys.exit("-d requires a full dump")
 
+        me_start = 0
+        f.seek(0, 2)
+        me_end = f.tell()
+
     elif magic == b"\x5a\xa5\xf0\x0f":
         print("Full image detected")
+
+        if args.truncate:
+            sys.exit("-t requires a separated ME/TXE image")
+
         f.seek(0x14)
         flmap0, flmap1 = unpack("<II", f.read(8))
         nr = flmap0 >> 24 & 0x7
@@ -479,6 +487,11 @@ if __name__ == "__main__":
                             print("The ME region can be reduced up to:\n"
                                   " {:08x}:{:08x} me"
                                   .format(me_start, end_addr - 1))
+                        elif args.truncate:
+                            print("Truncating file at {:#x}..."
+                                  .format(end_addr))
+                            f.truncate(end_addr)
+
                     else:
                         print("Found less modules than expected in the FTPR "
                               "partition; skipping modules removal")
