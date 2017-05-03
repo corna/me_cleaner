@@ -421,10 +421,12 @@ if __name__ == "__main__":
         if me11:
             mef.seek(me_start + 0x10)
             header = bytearray(mef.read(0x20))
+            header[0x0b] = 0x00
         else:
             mef.seek(me_start)
             header = bytearray(mef.read(0x30))
-        checksum = (0x100 - (sum(header) - header[0x1b]) & 0xff) & 0xff
+            header[0x1b] = 0x00
+        checksum = (0x100 - sum(header) & 0xff) & 0xff
 
         print("Correcting checksum (0x{:02x})...".format(checksum))
         # The checksum is just the two's complement of the sum of the first
