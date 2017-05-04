@@ -6,6 +6,9 @@ This tools removes any unnecessary partition from an Intel ME/TXE firmware, redu
 its size and its ability to interact with the system.
 It should work both with coreboot and with the factory firmware.
 
+In order to seal the loophole mentioned with [this article](https://semiaccurate.com/2017/05/01/remote-security-exploit-2008-intel-platforms/),
+You HAD BETTER apply this tool to your box's firmware, rather than installing patches from intel;-)
+
 Currently this tool:
  * Scans the FPT (partition table) and checks that everything is correct
  * Removes any partition entry (except for FTPR) from FPT
