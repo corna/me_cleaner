@@ -24,7 +24,7 @@ for more info about them. me_cleaner works also on the TXE and SPS firmware.
 
 If you want to understand how me_cleaner works, you can read the ["How does it work?" page](https://github.com/corna/me_cleaner/wiki/How-does-it-work%3F).
 
-If you want to apply me_cleaner on your plaform I suggest you to read the
+If you want to apply me_cleaner on your platform I suggest you to read the
 ["How does it work?" page](https://github.com/corna/me_cleaner/wiki/How-does-it-work%3F)
 and then follow the guide ["How to apply me_cleaner"](https://github.com/corna/me_cleaner/wiki/How-to-apply-me_cleaner).
 
