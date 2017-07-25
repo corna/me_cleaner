@@ -32,7 +32,7 @@ class OutOfRegionException(Exception):
     pass
 
 
-class regionFile:
+class RegionFile:
     def __init__(self, f, region_start, region_end):
         self.f = f
         self.region_start = region_start
@@ -397,7 +397,7 @@ if __name__ == "__main__":
             shutil.copy(args.file, args.output)
             f = open(args.output, "r+b")
 
-        mef = regionFile(f, me_start, me_end)
+        mef = RegionFile(f, me_start, me_end)
 
         print("Removing extra partitions...")
         mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
@@ -415,7 +415,7 @@ if __name__ == "__main__":
 
         if args.descriptor:
             print("Removing ME/TXE R/W access to the other flash regions...")
-            fdf = regionFile(f, fd_start, fd_end)
+            fdf = RegionFile(f, fd_start, fd_end)
             fdf.write_to(fmba + 0x4, pack("<I", 0x04040000))
 
         if me11:
