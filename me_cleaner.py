@@ -458,9 +458,9 @@ if __name__ == "__main__":
         f.seek(frba)
         flreg0, flreg1, flreg2 = unpack("<III", f.read(12))
         fd_start = (flreg0 & 0x1fff) << 12
-        fd_end = flreg0 >> 4 & 0x1fff000 | 0xfff + 1
+        fd_end = (flreg0 >> 4 & 0x1fff000 | 0xfff) + 1
         me_start = (flreg2 & 0x1fff) << 12
-        me_end = flreg2 >> 4 & 0x1fff000 | 0xfff + 1
+        me_end = (flreg2 >> 4 & 0x1fff000 | 0xfff) + 1
 
         if me_start >= me_end:
             sys.exit("The ME/TXE region in this image has been disabled")
