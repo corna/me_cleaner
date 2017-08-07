@@ -82,6 +82,13 @@ class RegionFile:
         else:
             raise OutOfRegionException()
 
+    def save(self, filename, size):
+        self.f.seek(self.region_start)
+        copyf = open(filename, "w+b")
+        for i in range(0, size, 4096):
+            copyf.write(self.f.read(4096 if size - i >= 4096 else size - i))
+        return copyf
+
 
 def get_chunks_offsets(llut, me_start):
     chunk_count = unpack("<I", llut[0x04:0x08])[0]
@@ -212,6 +219,15 @@ def check_partition_signature(f, offset):
     return "{:#x}".format(decrypted_sig).endswith(sha256.hexdigest())   # FIXME
 
 
+def print_check_partition_signature(f, offset):
+    if check_partition_signature(f, offset):
+        print("VALID")
+    else:
+        print("INVALID!!")
+        sys.exit("The FTPR partition signature is not valid. Is the input "
+                 "ME/TXE image valid?")
+
+
 def relocate_partition(f, me_start, me_end, partition_header_offset,
                        new_offset, mod_headers):
 
@@ -254,7 +270,7 @@ def relocate_partition(f, me_start, me_end, partition_header_offset,
             if f.read(4) == b"LLUT":
                 print(" Adjusting LUT start offset...")
                 lut_offset = llut_start + offset_diff + 0x40 - \
-                             lut_start_corr - me_start
+                    lut_start_corr - me_start
                 f.write_to(llut_start + 0x0c, pack("<I", lut_offset))
 
                 print(" Adjusting Huffman start offset...")
@@ -408,15 +424,25 @@ def check_mn2_tag(f, offset):
                  .format(tag))
 
 
+def flreg_to_start_end(flreg):
+    return (flreg & 0x7fff) << 12, (flreg >> 4 & 0x7fff000 | 0xfff) + 1
+
+
+def start_end_to_flreg(start, end):
+    return (start & 0x7fff000) >> 12 | ((end - 1) & 0x7fff000) << 4
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tool to remove as much code "
-                                     "as possible from Intel ME/TXE firmwares")
+                                     "as possible from Intel ME/TXE firmware "
+                                     "images")
     parser.add_argument("file", help="ME/TXE image or full dump")
     parser.add_argument("-O", "--output", help="save the modified image in a "
                         "separate file, instead of modifying the original "
                         "file")
     parser.add_argument("-r", "--relocate", help="relocate the FTPR partition "
-                        "to the top of the ME region", action="store_true")
+                        "to the top of the ME region to save even more space",
+                        action="store_true")
     parser.add_argument("-k", "--keep-modules", help="don't remove the FTPR "
                         "modules, even when possible", action="store_true")
     parser.add_argument("-d", "--descriptor", help="remove the ME/TXE "
@@ -424,12 +450,26 @@ if __name__ == "__main__":
                         "flash from the Intel Flash Descriptor (requires a "
                         "full dump)", action="store_true")
     parser.add_argument("-t", "--truncate", help="truncate the empty part of "
-                        "the firmware (requires a separated ME/TXE image)",
-                        action="store_true")
+                        "the firmware (requires a separated ME/TXE image or "
+                        "--extract-me)", action="store_true")
     parser.add_argument("-c", "--check", help="verify the integrity of the "
                         "fundamental parts of the firmware and exit",
                         action="store_true")
+    parser.add_argument("-D", "--extract-descriptor", help="extract the "
+                        "flash descriptor from a full dump; when used with "
+                        "--truncate save a descriptor with adjusted regions "
+                        "start and end")
+    parser.add_argument("-M", "--extract-me", help="extract the ME firmware "
+                        "from a full dump; when used with --truncate save a "
+                        "truncated ME/TXE image")
+
     args = parser.parse_args()
+
+    if args.check:
+        if args.relocate:
+            sys.exit("-c and -r can't be used together")
+        elif args.truncate:
+            sys.exit("-c and -t can't be used together")
 
     f = open(args.file, "rb" if args.check or args.output else "r+b")
     f.seek(0x10)
@@ -441,6 +481,12 @@ if __name__ == "__main__":
         if args.descriptor:
             sys.exit("-d requires a full dump")
 
+        if args.extract_descriptor:
+            sys.exit("-D requires a full dump")
+
+        if args.extract_me:
+            sys.exit("-M requires a full dump")
+
         me_start = 0
         f.seek(0, 2)
         me_end = f.tell()
@@ -448,19 +494,20 @@ if __name__ == "__main__":
     elif magic == b"\x5a\xa5\xf0\x0f":
         print("Full image detected")
 
-        if args.truncate:
-            sys.exit("-t requires a separated ME/TXE image")
+        if args.truncate and not args.extract_me:
+            sys.exit("-t requires a separated ME/TXE image (or --extract-me)")
 
         f.seek(0x14)
         flmap0, flmap1 = unpack("<II", f.read(8))
         frba = flmap0 >> 12 & 0xff0
         fmba = (flmap1 & 0xff) << 4
+
         f.seek(frba)
-        flreg0, flreg1, flreg2 = unpack("<III", f.read(12))
-        fd_start = (flreg0 & 0x1fff) << 12
-        fd_end = (flreg0 >> 4 & 0x1fff000 | 0xfff) + 1
-        me_start = (flreg2 & 0x1fff) << 12
-        me_end = (flreg2 >> 4 & 0x1fff000 | 0xfff) + 1
+        flreg = unpack("<III", f.read(12))
+
+        fd_start, fd_end = flreg_to_start_end(flreg[0])
+        bios_start, bios_end = flreg_to_start_end(flreg[1])
+        me_start, me_end = flreg_to_start_end(flreg[2])
 
         if me_start >= me_end:
             sys.exit("The ME/TXE region in this image has been disabled")
@@ -542,6 +589,7 @@ if __name__ == "__main__":
             f = open(args.output, "r+b")
 
         mef = RegionFile(f, me_start, me_end)
+        fdf = RegionFile(f, fd_start, fd_end)
 
         print("Removing extra partitions...")
         mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
@@ -556,11 +604,6 @@ if __name__ == "__main__":
         flags = unpack("<I", mef.read(4))[0]
         flags &= ~(0x00000001)
         mef.write_to(me_start + 0x24, pack("<I", flags))
-
-        if args.descriptor:
-            print("Removing ME/TXE R/W access to the other flash regions...")
-            fdf = RegionFile(f, fd_start, fd_end)
-            fdf.write_to(fmba + 0x4, pack("<I", 0x04040000))
 
         if me11:
             mef.seek(me_start + 0x10)
@@ -606,13 +649,58 @@ if __name__ == "__main__":
                 print("Truncating file at {:#x}...".format(end_addr))
                 f.truncate(end_addr)
 
-    sys.stdout.write("Checking FTPR RSA signature... ")
-    if check_partition_signature(f, ftpr_offset + ftpr_mn2_offset):
-        print("VALID")
-    else:
-        print("INVALID!!")
-        sys.exit("The FTPR partition signature is not valid. Is the input "
-                 "ME/TXE image valid?")
+    if args.descriptor:
+        print("Removing ME/TXE R/W access to the other flash regions...")
+        fdf.write_to(fmba + 0x4, pack("<I", 0x04040000))
+
+    if args.extract_descriptor:
+        if args.truncate:
+            print("Extracting the descriptor to \"{}\"..."
+                  .format(args.extract_descriptor))
+            fdf_copy = fdf.save(args.extract_descriptor, fd_end - fd_start)
+
+            if bios_start == me_end:
+                print("Modifying the regions of the extracted descriptor...")
+                print(" {:08x}:{:08x} me   --> {:08x}:{:08x} me"
+                      .format(me_start, me_end - 1, me_start, end_addr - 1))
+                print(" {:08x}:{:08x} bios --> {:08x}:{:08x} bios"
+                      .format(bios_start, bios_end - 1, end_addr, bios_end - 1))
+
+                flreg1 = start_end_to_flreg(end_addr, bios_end)
+                flreg2 = start_end_to_flreg(me_start, end_addr)
+
+                fdf_copy.seek(frba + 0x4)
+                fdf_copy.write(pack("<II", flreg1, flreg2))
+            else:
+                print("\nWARNING:\n The start address of the BIOS region "
+                      "isn't equal to the end address of the ME\n region: if "
+                      "you want to recover the space from the ME region you "
+                      "have to\n manually modify the descriptor.\n")
+
+            fdf_copy.close()
+        else:
+            print("Extracting the descriptor to \"{}\"..."
+                  .format(args.extract_descriptor))
+            fdf.save(args.extract_descriptor, fd_end - fd_start).close()
+
+    if args.extract_me:
+        if args.truncate:
+            print("Extracting and truncating the ME image to \"{}\"..."
+                  .format(args.extract_me))
+            mef_copy = mef.save(args.extract_me, end_addr - me_start)
+        else:
+            print("Extracting the ME image to \"{}\"..."
+                  .format(args.extract_me))
+            mef_copy = mef.save(args.extract_me, me_end - me_start)
+
+        sys.stdout.write("Checking the FTPR RSA signature of the extracted ME "
+                         "image... ")
+        print_check_partition_signature(mef_copy, ftpr_offset +
+                                        ftpr_mn2_offset - me_start)
+        mef_copy.close()
+
+    sys.stdout.write("Checking the FTPR RSA signature... ")
+    print_check_partition_signature(f, ftpr_offset + ftpr_mn2_offset)
 
     f.close()
 
