@@ -401,7 +401,7 @@ def check_and_remove_modules_me11(f, me_start, me_end, partition_offset,
                 print("NOT removed, essential")
             else:
                 removed = True
-                f.fill_range(offset, end, b"\xff")
+                f.fill_range(offset, min(end, me_end), b"\xff")
                 print("removed")
 
             if not removed:
