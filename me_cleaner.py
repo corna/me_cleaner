@@ -589,7 +589,9 @@ if __name__ == "__main__":
             f = open(args.output, "r+b")
 
         mef = RegionFile(f, me_start, me_end)
-        fdf = RegionFile(f, fd_start, fd_end)
+
+        if args.descriptor or args.extract_descriptor:
+            fdf = RegionFile(f, fd_start, fd_end)
 
         print("Removing extra partitions...")
         mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
