@@ -501,6 +501,7 @@ if __name__ == "__main__":
         flmap0, flmap1 = unpack("<II", f.read(8))
         frba = flmap0 >> 12 & 0xff0
         fmba = (flmap1 & 0xff) << 4
+        fpsba = flmap1 >> 12 & 0xff0
 
         f.seek(frba)
         flreg = unpack("<III", f.read(12))
@@ -590,7 +591,7 @@ if __name__ == "__main__":
 
         mef = RegionFile(f, me_start, me_end)
 
-        if args.descriptor or args.extract_descriptor:
+        if me_start > 0:
             fdf = RegionFile(f, fd_start, fd_end)
 
         print("Removing extra partitions...")
@@ -650,6 +651,21 @@ if __name__ == "__main__":
             elif args.truncate:
                 print("Truncating file at {:#x}...".format(end_addr))
                 f.truncate(end_addr)
+
+        if me_start > 0:
+            if me11:
+                print("Setting the HAP bit in PCHSTRP0 to disable Intel ME...")
+                fdf.seek(fpsba)
+                pchstrp0 = unpack("<I", fdf.read(4))[0]
+                pchstrp0 |= (1 << 16)
+                fdf.write_to(fpsba, pack("<I", pchstrp0))
+            else:
+                print("Setting the AltMeDisable bit in PCHSTRP10 to disable "
+                      "Intel ME...")
+                fdf.seek(fpsba + 0x28)
+                pchstrp10 = unpack("<I", fdf.read(4))[0]
+                pchstrp10 |= (1 << 7)
+                fdf.write_to(fpsba + 0x28, pack("<I", pchstrp10))
 
     if args.descriptor:
         print("Removing ME/TXE R/W access to the other flash regions...")
