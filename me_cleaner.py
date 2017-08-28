@@ -74,7 +74,7 @@ class RegionFile:
            offset_to + size <= self.region_end:
             for i in range(0, size, 4096):
                 self.f.seek(offset_from + i, 0)
-                block = self.f.read(4096 if size - i >= 4096 else size - i)
+                block = self.f.read(min(size - i, 4096))
                 self.f.seek(offset_from + i, 0)
                 self.f.write(fill * len(block))
                 self.f.seek(offset_to + i, 0)
@@ -86,7 +86,7 @@ class RegionFile:
         self.f.seek(self.region_start)
         copyf = open(filename, "w+b")
         for i in range(0, size, 4096):
-            copyf.write(self.f.read(4096 if size - i >= 4096 else size - i))
+            copyf.write(self.f.read(min(size - i, 4096)))
         return copyf
 
 
@@ -678,12 +678,12 @@ if __name__ == "__main__":
                       "isn't equal to the end address of the ME\n region: if "
                       "you want to recover the space from the ME region you "
                       "have to\n manually modify the descriptor.\n")
-
-            fdf_copy.close()
         else:
             print("Extracting the descriptor to \"{}\"..."
                   .format(args.extract_descriptor))
-            fdf.save(args.extract_descriptor, fd_end - fd_start).close()
+            fdf_copy = fdf.save(args.extract_descriptor, fd_end - fd_start)
+
+        fdf_copy.close()
 
     if args.extract_me:
         if args.truncate:
