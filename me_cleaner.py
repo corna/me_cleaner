@@ -471,9 +471,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.check and (args.soft_disable or args.relocate or \
-       args.keep_modules or args.descriptor or args.truncate or \
-       args.output or args.extract_descriptor or args.extract_me):
-        sys.exit("-c must be used alone")
+       args.descriptor or args.truncate or args.output):
+        sys.exit("-c can't be used with -s, -r, -d, -t or -O")
+
+    if args.soft_disable and (args.relocate or args.truncate):
+        sys.exit("-s can't be used with -r or -t")
 
     f = open(args.file, "rb" if args.check or args.output else "r+b")
     f.seek(0x10)
@@ -482,17 +484,9 @@ if __name__ == "__main__":
     if magic == b"$FPT":
         print("ME/TXE image detected")
 
-        if args.descriptor:
-            sys.exit("-d requires a full dump")
-
-        if args.extract_descriptor:
-            sys.exit("-D requires a full dump")
-
-        if args.extract_me:
-            sys.exit("-M requires a full dump")
-
-        if args.soft_disable:
-            sys.exit("-s requires a full dump")
+        if args.descriptor or args.extract_descriptor or args.extract_me or \
+           args.soft_disable:
+            sys.exit("-d, -D, -M and -s require a full dump")
 
         me_start = 0
         f.seek(0, 2)
@@ -590,17 +584,17 @@ if __name__ == "__main__":
     print("ME/TXE firmware version {}"
           .format('.'.join(str(i) for i in version)))
 
+    if not args.check and args.output:
+        f.close()
+        shutil.copy(args.file, args.output)
+        f = open(args.output, "r+b")
+
+    mef = RegionFile(f, me_start, me_end)
+
+    if me_start > 0:
+        fdf = RegionFile(f, fd_start, fd_end)
+
     if not args.check:
-        if args.output:
-            f.close()
-            shutil.copy(args.file, args.output)
-            f = open(args.output, "r+b")
-
-        mef = RegionFile(f, me_start, me_end)
-
-        if me_start > 0:
-            fdf = RegionFile(f, fd_start, fd_end)
-
         if not args.soft_disable:
             print("Removing extra partitions...")
             mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
