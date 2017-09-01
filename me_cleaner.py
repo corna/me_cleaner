@@ -436,14 +436,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tool to remove as much code "
                                      "as possible from Intel ME/TXE firmware "
                                      "images")
+    softdis = parser.add_mutually_exclusive_group()
     parser.add_argument("file", help="ME/TXE image or full dump")
     parser.add_argument("-O", "--output", metavar='output_file', help="save "
                         "the modified image in a separate file, instead of "
                         "modifying the original file")
-    parser.add_argument("-s", "--soft-disable", help="instead of modifying "
-                        "the Intel ME firmware, just disable it by setting "
-                        "the MeAltDisable bit or the HAP bit (requires a full "
-                        "dump)", action="store_true")
+    softdis.add_argument("-S", "--soft-disable", help="in addition to the "
+                         "usual operations on the ME/TXE firmware, set the "
+                         "MeAltDisable bit or the HAP bit to ask Intel ME/TXE "
+                         "to disable itself after the hardware initialization "
+                         "(requires a full dump)", action="store_true")
+    softdis.add_argument("-s", "--soft-disable-only", help="instead of the "
+                         "usual operations on the ME/TXE firmware, just set "
+                         "the MeAltDisable bit or the HAP bit to ask Intel "
+                         "ME/TXE to disable itself after the hardware "
+                         "initialization (requires a full dump)",
+                         action="store_true")
     parser.add_argument("-r", "--relocate", help="relocate the FTPR partition "
                         "to the top of the ME region to save even more space",
                         action="store_true")
@@ -470,11 +478,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.check and (args.soft_disable or args.relocate or \
-       args.descriptor or args.truncate or args.output):
-        sys.exit("-c can't be used with -s, -r, -d, -t or -O")
+    if args.check and (args.soft_disable_only or args.soft_disable or \
+       args.relocate or args.descriptor or args.truncate or args.output):
+        sys.exit("-c can't be used with -S, -s, -r, -d, -t or -O")
 
-    if args.soft_disable and (args.relocate or args.truncate):
+    if args.soft_disable_only and (args.relocate or args.truncate):
         sys.exit("-s can't be used with -r or -t")
 
     f = open(args.file, "rb" if args.check or args.output else "r+b")
@@ -485,8 +493,8 @@ if __name__ == "__main__":
         print("ME/TXE image detected")
 
         if args.descriptor or args.extract_descriptor or args.extract_me or \
-           args.soft_disable:
-            sys.exit("-d, -D, -M and -s require a full dump")
+           args.soft_disable or args.soft_disable_only:
+            sys.exit("-d, -D, -M, -S and -s require a full dump")
 
         me_start = 0
         f.seek(0, 2)
@@ -522,6 +530,8 @@ if __name__ == "__main__":
               .format(me_start, me_end))
     else:
         sys.exit("Unknown image")
+
+    end_addr = me_end
 
     print("Found FPT header at {:#x}".format(me_start + 0x10))
 
@@ -595,7 +605,7 @@ if __name__ == "__main__":
         fdf = RegionFile(f, fd_start, fd_end)
 
     if not args.check:
-        if not args.soft_disable:
+        if not args.soft_disable_only:
             print("Removing extra partitions...")
             mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
             mef.fill_range(ftpr_offset + ftpr_lenght, me_end, b"\xff")
@@ -655,19 +665,20 @@ if __name__ == "__main__":
                     print("Truncating file at {:#x}...".format(end_addr))
                     f.truncate(end_addr)
 
-        if me11:
-            print("Setting the HAP bit in PCHSTRP0 to disable Intel ME...")
-            fdf.seek(fpsba)
-            pchstrp0 = unpack("<I", fdf.read(4))[0]
-            pchstrp0 |= (1 << 16)
-            fdf.write_to(fpsba, pack("<I", pchstrp0))
-        else:
-            print("Setting the AltMeDisable bit in PCHSTRP10 to disable Intel "
-                  "ME...")
-            fdf.seek(fpsba + 0x28)
-            pchstrp10 = unpack("<I", fdf.read(4))[0]
-            pchstrp10 |= (1 << 7)
-            fdf.write_to(fpsba + 0x28, pack("<I", pchstrp10))
+        if args.soft_disable or args.soft_disable_only:
+            if me11:
+                print("Setting the HAP bit in PCHSTRP0 to disable Intel ME...")
+                fdf.seek(fpsba)
+                pchstrp0 = unpack("<I", fdf.read(4))[0]
+                pchstrp0 |= (1 << 16)
+                fdf.write_to(fpsba, pack("<I", pchstrp0))
+            else:
+                print("Setting the AltMeDisable bit in PCHSTRP10 to disable "
+                      "Intel ME...")
+                fdf.seek(fpsba + 0x28)
+                pchstrp10 = unpack("<I", fdf.read(4))[0]
+                pchstrp10 |= (1 << 7)
+                fdf.write_to(fpsba + 0x28, pack("<I", pchstrp10))
 
     if args.descriptor:
         print("Removing ME/TXE R/W access to the other flash regions...")
