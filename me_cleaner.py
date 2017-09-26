@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# me_cleaner -  Tool for partial deblobbing of Intel ME/TXE firmware images
+# me_cleaner - Tool for partial deblobbing of Intel ME/TXE firmware images
 # Copyright (C) 2016, 2017 Nicola Corna <nicola@corna.info>
 #
 # This program is free software; you can redistribute it and/or modify
@@ -14,12 +14,12 @@
 # GNU General Public License for more details.
 #
 
-import sys
-import itertools
+import argparse
 import binascii
 import hashlib
-import argparse
+import itertools
 import shutil
+import sys
 from struct import pack, unpack
 
 
