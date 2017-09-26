@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# me_cleaner -  Tool for partial deblobbing of Intel ME/TXE firmware images
+# me_cleaner - Tool for partial deblobbing of Intel ME/TXE firmware images
 # Copyright (C) 2016, 2017 Nicola Corna <nicola@corna.info>
 #
 # This program is free software; you can redistribute it and/or modify
@@ -16,12 +16,13 @@
 
 """Tool for partial deblobbing of Intel ME/TXE firmware images."""
 
-import sys
-import itertools
+
+import argparse
 import binascii
 import hashlib
-import argparse
+import itertools
 import shutil
+import sys
 from struct import pack, unpack
 
 
@@ -77,7 +78,7 @@ class RegionFile:
            offset_to + size <= self.region_end:
             for i in range(0, size, 4096):
                 self.f.seek(offset_from + i, 0)
-                block = self.f.read(4096 if size - i >= 4096 else size - i)
+                block = self.f.read(min(size - i, 4096))
                 self.f.seek(offset_from + i, 0)
                 self.f.write(fill * len(block))
                 self.f.seek(offset_to + i, 0)
@@ -90,7 +91,7 @@ class RegionFile:
         self.f.seek(self.region_start)
         copyf = open(filename, "w+b")
         for i in range(0, size, 4096):
-            copyf.write(self.f.read(4096 if size - i >= 4096 else size - i))
+            copyf.write(self.f.read(min(size - i, 4096)))
         return copyf
 
 
@@ -443,10 +444,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tool to remove as much code "
                                      "as possible from Intel ME/TXE firmware "
                                      "images")
+    softdis = parser.add_mutually_exclusive_group()
     parser.add_argument("file", help="ME/TXE image or full dump")
-    parser.add_argument("-O", "--output", help="save the modified image in a "
-                        "separate file, instead of modifying the original "
-                        "file")
+    parser.add_argument("-O", "--output", metavar='output_file', help="save "
+                        "the modified image in a separate file, instead of "
+                        "modifying the original file")
+    softdis.add_argument("-S", "--soft-disable", help="in addition to the "
+                         "usual operations on the ME/TXE firmware, set the "
+                         "MeAltDisable bit or the HAP bit to ask Intel ME/TXE "
+                         "to disable itself after the hardware initialization "
+                         "(requires a full dump)", action="store_true")
+    softdis.add_argument("-s", "--soft-disable-only", help="instead of the "
+                         "usual operations on the ME/TXE firmware, just set "
+                         "the MeAltDisable bit or the HAP bit to ask Intel "
+                         "ME/TXE to disable itself after the hardware "
+                         "initialization (requires a full dump)",
+                         action="store_true")
     parser.add_argument("-r", "--relocate", help="relocate the FTPR partition "
                         "to the top of the ME region to save even more space",
                         action="store_true")
@@ -462,21 +475,23 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--check", help="verify the integrity of the "
                         "fundamental parts of the firmware and exit",
                         action="store_true")
-    parser.add_argument("-D", "--extract-descriptor", help="extract the "
-                        "flash descriptor from a full dump; when used with "
+    parser.add_argument("-D", "--extract-descriptor",
+                        metavar='output_descriptor', help="extract the flash "
+                        "descriptor from a full dump; when used with "
                         "--truncate save a descriptor with adjusted regions "
                         "start and end")
-    parser.add_argument("-M", "--extract-me", help="extract the ME firmware "
-                        "from a full dump; when used with --truncate save a "
-                        "truncated ME/TXE image")
+    parser.add_argument("-M", "--extract-me", metavar='output_me_image',
+                        help="extract the ME firmware from a full dump; when "
+                        "used with --truncate save a truncated ME/TXE image")
 
     args = parser.parse_args()
 
-    if args.check:
-        if args.relocate:
-            sys.exit("-c and -r can't be used together")
-        elif args.truncate:
-            sys.exit("-c and -t can't be used together")
+    if args.check and (args.soft_disable_only or args.soft_disable or \
+       args.relocate or args.descriptor or args.truncate or args.output):
+        sys.exit("-c can't be used with -S, -s, -r, -d, -t or -O")
+
+    if args.soft_disable_only and (args.relocate or args.truncate):
+        sys.exit("-s can't be used with -r or -t")
 
     f = open(args.file, "rb" if args.check or args.output else "r+b")
     f.seek(0x10)
@@ -485,14 +500,9 @@ if __name__ == "__main__":
     if magic == b"$FPT":
         print("ME/TXE image detected")
 
-        if args.descriptor:
-            sys.exit("-d requires a full dump")
-
-        if args.extract_descriptor:
-            sys.exit("-D requires a full dump")
-
-        if args.extract_me:
-            sys.exit("-M requires a full dump")
+        if args.descriptor or args.extract_descriptor or args.extract_me or \
+           args.soft_disable or args.soft_disable_only:
+            sys.exit("-d, -D, -M, -S and -s require a full dump")
 
         me_start = 0
         f.seek(0, 2)
@@ -508,6 +518,7 @@ if __name__ == "__main__":
         flmap0, flmap1 = unpack("<II", f.read(8))
         frba = flmap0 >> 12 & 0xff0
         fmba = (flmap1 & 0xff) << 4
+        fpsba = flmap1 >> 12 & 0xff0
 
         f.seek(frba)
         flreg = unpack("<III", f.read(12))
@@ -527,6 +538,8 @@ if __name__ == "__main__":
               .format(me_start, me_end))
     else:
         sys.exit("Unknown image")
+
+    end_addr = me_end
 
     print("Found FPT header at {:#x}".format(me_start + 0x10))
 
@@ -589,74 +602,91 @@ if __name__ == "__main__":
     print("ME/TXE firmware version {}"
           .format('.'.join(str(i) for i in version)))
 
+    if not args.check and args.output:
+        f.close()
+        shutil.copy(args.file, args.output)
+        f = open(args.output, "r+b")
+
+    mef = RegionFile(f, me_start, me_end)
+
+    if me_start > 0:
+        fdf = RegionFile(f, fd_start, fd_end)
+
     if not args.check:
-        if args.output:
-            f.close()
-            shutil.copy(args.file, args.output)
-            f = open(args.output, "r+b")
+        if not args.soft_disable_only:
+            print("Removing extra partitions...")
+            mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
+            mef.fill_range(ftpr_offset + ftpr_lenght, me_end, b"\xff")
 
-        mef = RegionFile(f, me_start, me_end)
+            print("Removing extra partition entries in FPT...")
+            mef.write_to(me_start + 0x30, ftpr_header)
+            mef.write_to(me_start + 0x14, pack("<I", 1))
 
-        if args.descriptor or args.extract_descriptor:
-            fdf = RegionFile(f, fd_start, fd_end)
+            print("Removing EFFS presence flag...")
+            mef.seek(me_start + 0x24)
+            flags = unpack("<I", mef.read(4))[0]
+            flags &= ~(0x00000001)
+            mef.write_to(me_start + 0x24, pack("<I", flags))
 
-        print("Removing extra partitions...")
-        mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
-        mef.fill_range(ftpr_offset + ftpr_lenght, me_end, b"\xff")
+            if me11:
+                mef.seek(me_start + 0x10)
+                header = bytearray(mef.read(0x20))
+                header[0x0b] = 0x00
+            else:
+                mef.seek(me_start)
+                header = bytearray(mef.read(0x30))
+                header[0x1b] = 0x00
+            checksum = (0x100 - sum(header) & 0xff) & 0xff
 
-        print("Removing extra partition entries in FPT...")
-        mef.write_to(me_start + 0x30, ftpr_header)
-        mef.write_to(me_start + 0x14, pack("<I", 1))
+            print("Correcting checksum (0x{:02x})...".format(checksum))
+            # The checksum is just the two's complement of the sum of the first
+            # 0x30 bytes in ME < 11 or bytes 0x10:0x30 in ME >= 11 (except for
+            # 0x1b, the checksum itself). In other words, the sum of those
+            # bytes must be always 0x00.
+            mef.write_to(me_start + 0x1b, pack("B", checksum))
 
-        print("Removing EFFS presence flag...")
-        mef.seek(me_start + 0x24)
-        flags = unpack("<I", mef.read(4))[0]
-        flags &= ~(0x00000001)
-        mef.write_to(me_start + 0x24, pack("<I", flags))
+            print("Reading FTPR modules list...")
+            if me11:
+                end_addr, ftpr_offset = \
+                    check_and_remove_modules_me11(mef, me_start, me_end,
+                                                  ftpr_offset, ftpr_lenght,
+                                                  min_ftpr_offset,
+                                                  args.relocate,
+                                                  args.keep_modules)
+            else:
+                end_addr, ftpr_offset = \
+                    check_and_remove_modules(mef, me_start, me_end, ftpr_offset,
+                                             min_ftpr_offset, args.relocate,
+                                             args.keep_modules)
 
-        if me11:
-            mef.seek(me_start + 0x10)
-            header = bytearray(mef.read(0x20))
-            header[0x0b] = 0x00
-        else:
-            mef.seek(me_start)
-            header = bytearray(mef.read(0x30))
-            header[0x1b] = 0x00
-        checksum = (0x100 - sum(header) & 0xff) & 0xff
+            if end_addr > 0:
+                end_addr = (end_addr // 0x1000 + 1) * 0x1000
+                end_addr += spared_blocks * 0x1000
 
-        print("Correcting checksum (0x{:02x})...".format(checksum))
-        # The checksum is just the two's complement of the sum of the first
-        # 0x30 bytes in ME < 11 or bytes 0x10:0x30 in ME >= 11 (except for
-        # 0x1b, the checksum itself). In other words, the sum of those bytes
-        # must be always 0x00.
-        mef.write_to(me_start + 0x1b, pack("B", checksum))
+                print("The ME minimum size should be {0} bytes "
+                      "({0:#x} bytes)".format(end_addr - me_start))
 
-        print("Reading FTPR modules list...")
-        if me11:
-            end_addr, ftpr_offset = \
-                check_and_remove_modules_me11(mef, me_start, me_end,
-                                              ftpr_offset, ftpr_lenght,
-                                              min_ftpr_offset, args.relocate,
-                                              args.keep_modules)
-        else:
-            end_addr, ftpr_offset = \
-                check_and_remove_modules(mef, me_start, me_end, ftpr_offset,
-                                         min_ftpr_offset, args.relocate,
-                                         args.keep_modules)
+                if me_start > 0:
+                    print("The ME region can be reduced up to:\n"
+                          " {:08x}:{:08x} me".format(me_start, end_addr - 1))
+                elif args.truncate:
+                    print("Truncating file at {:#x}...".format(end_addr))
+                    f.truncate(end_addr)
 
-        if end_addr > 0:
-            end_addr = (end_addr // 0x1000 + 1) * 0x1000
-            end_addr += spared_blocks * 0x1000
-
-            print("The ME minimum size should be {0} bytes "
-                  "({0:#x} bytes)".format(end_addr - me_start))
-
-            if me_start > 0:
-                print("The ME region can be reduced up to:\n"
-                      " {:08x}:{:08x} me".format(me_start, end_addr - 1))
-            elif args.truncate:
-                print("Truncating file at {:#x}...".format(end_addr))
-                f.truncate(end_addr)
+        if args.soft_disable or args.soft_disable_only:
+            if me11:
+                print("Setting the HAP bit in PCHSTRP0 to disable Intel ME...")
+                fdf.seek(fpsba)
+                pchstrp0 = unpack("<I", fdf.read(4))[0]
+                pchstrp0 |= (1 << 16)
+                fdf.write_to(fpsba, pack("<I", pchstrp0))
+            else:
+                print("Setting the AltMeDisable bit in PCHSTRP10 to disable "
+                      "Intel ME...")
+                fdf.seek(fpsba + 0x28)
+                pchstrp10 = unpack("<I", fdf.read(4))[0]
+                pchstrp10 |= (1 << 7)
+                fdf.write_to(fpsba + 0x28, pack("<I", pchstrp10))
 
     if args.descriptor:
         print("Removing ME/TXE R/W access to the other flash regions...")
@@ -685,12 +715,12 @@ if __name__ == "__main__":
                       "isn't equal to the end address of the ME\n region: if "
                       "you want to recover the space from the ME region you "
                       "have to\n manually modify the descriptor.\n")
-
-            fdf_copy.close()
         else:
             print("Extracting the descriptor to \"{}\"..."
                   .format(args.extract_descriptor))
-            fdf.save(args.extract_descriptor, fd_end - fd_start).close()
+            fdf_copy = fdf.save(args.extract_descriptor, fd_end - fd_start)
+
+        fdf_copy.close()
 
     if args.extract_me:
         if args.truncate:
