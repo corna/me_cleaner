@@ -14,6 +14,9 @@
 # GNU General Public License for more details.
 #
 
+"""Tool for partial deblobbing of Intel ME/TXE firmware images."""
+
+
 import argparse
 import binascii
 import hashlib
@@ -57,6 +60,7 @@ class RegionFile:
             raise OutOfRegionException()
 
     def fill_range(self, start, end, fill):
+        """Fill the range from start to end."""
         if start >= self.region_start and end <= self.region_end:
             if start < end:
                 block = fill * 4096
@@ -83,6 +87,7 @@ class RegionFile:
             raise OutOfRegionException()
 
     def save(self, filename, size):
+        """Save to file."""
         self.f.seek(self.region_start)
         copyf = open(filename, "w+b")
         for i in range(0, size, 4096):
@@ -117,6 +122,7 @@ def get_chunks_offsets(llut, me_start):
 
 
 def remove_modules(f, mod_headers, ftpr_offset, me_end):
+    """Remove modules except essential modules."""
     comp_str = ("uncomp.", "Huffman", "LZMA")
     unremovable_huff_chunks = []
     chunks_offsets = []
@@ -200,6 +206,7 @@ def remove_modules(f, mod_headers, ftpr_offset, me_end):
 
 
 def check_partition_signature(f, offset):
+    """Check if the partition signature is valid."""
     f.seek(offset)
     header = f.read(0x80)
     modulus = int(binascii.hexlify(f.read(0x100)[::-1]), 16)
@@ -220,6 +227,7 @@ def check_partition_signature(f, offset):
 
 
 def print_check_partition_signature(f, offset):
+    """Print out whether the partition signature is valid or invalid."""
     if check_partition_signature(f, offset):
         print("VALID")
     else:
