@@ -607,7 +607,7 @@ if __name__ == "__main__":
 
     if not args.check:
         if not args.soft_disable_only:
-            print("Removing extra partitions...")
+            print("Removing unused partitions...")
             new_partitions = b""
             min_start = 0xffffffff
             extra_partitions = ()
@@ -633,7 +633,7 @@ if __name__ == "__main__":
                 elif part_start != 0 and part_length != 0:
                     mef.fill_range(me_start + part_start, me_start + part_end, b"\xff")
 
-            print("Removing extra partition entries in FPT...")
+            print("Removing unused partition entries in FPT...")
             mef.write_to(me_start + 0x30, new_partitions)
             mef.write_to(me_start + 0x14, pack("<I", len(new_partitions) / 0x20))
             mef.fill_range(me_start + 0x30 + len(new_partitions),
