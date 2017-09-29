@@ -27,7 +27,7 @@ min_ftpr_offset = 0x400
 spared_blocks = 4
 unremovable_modules = ("ROMP", "BUP")
 unremovable_modules_me11 = ("rbe", "kernel", "syslib", "bup")
-
+unremovable_partitions = ("FTPR",)
 
 class OutOfRegionException(Exception):
     pass
@@ -325,7 +325,7 @@ def check_and_remove_modules(f, me_start, me_end, offset, min_offset,
 
         if all(hdr.startswith(b"$MME") for hdr in mod_headers):
             if args.keep_modules:
-                end_addr = offset + ftpr_lenght
+                end_addr = offset + ftpr_length
             else:
                 end_addr = remove_modules(f, mod_headers,
                                           offset, me_end)
@@ -351,13 +351,13 @@ def check_and_remove_modules(f, me_start, me_end, offset, min_offset,
 
 
 def check_and_remove_modules_me11(f, me_start, me_end, partition_offset,
-                                  partition_lenght, min_offset, relocate,
+                                  partition_length, min_offset, relocate,
                                   keep_modules):
 
     comp_str = ("LZMA/uncomp.", "Huffman")
 
     if keep_modules:
-        end_data = partition_offset + partition_lenght
+        end_data = partition_offset + partition_length
     else:
         end_data = 0
 
@@ -365,7 +365,7 @@ def check_and_remove_modules_me11(f, me_start, me_end, partition_offset,
         module_count = unpack("<I", f.read(4))[0]
 
         modules = []
-        modules.append(("end", partition_lenght, 0))
+        modules.append(("end", partition_length, 0))
 
         f.seek(partition_offset + 0x10)
         for i in range(0, module_count):
@@ -457,6 +457,10 @@ if __name__ == "__main__":
                         action="store_true")
     parser.add_argument("-k", "--keep-modules", help="don't remove the FTPR "
                         "modules, even when possible", action="store_true")
+    parser.add_argument("-e", "--extra-partitions", metavar="partition_list",
+                        help="Comma separated list of extra partitions to keep"
+                        "in the final image. This can be used to specify the MFS"
+                        "partition for example, which stores PCIe and clock settings")
     parser.add_argument("-d", "--descriptor", help="remove the ME/TXE "
                         "Read/Write permissions to the other regions on the "
                         "flash from the Intel Flash Descriptor (requires a "
@@ -539,9 +543,6 @@ if __name__ == "__main__":
     entries = unpack("<I", f.read(4))[0]
     print("Found {} partition(s)".format(entries))
 
-    f.seek(me_start + 0x14)
-    header_len = unpack("B", f.read(1))[0]
-
     f.seek(me_start + 0x30)
     partitions = f.read(entries * 0x20)
 
@@ -555,10 +556,10 @@ if __name__ == "__main__":
     if ftpr_header == b"":
         sys.exit("FTPR header not found, this image doesn't seem to be valid")
 
-    ftpr_offset, ftpr_lenght = unpack("<II", ftpr_header[0x08:0x10])
+    ftpr_offset, ftpr_length = unpack("<II", ftpr_header[0x08:0x10])
     ftpr_offset += me_start
     print("Found FTPR header: FTPR partition spans from {:#x} to {:#x}"
-          .format(ftpr_offset, ftpr_offset + ftpr_lenght))
+          .format(ftpr_offset, ftpr_offset + ftpr_length))
 
     f.seek(ftpr_offset)
     if f.read(4) == b"$CPD":
@@ -606,13 +607,37 @@ if __name__ == "__main__":
 
     if not args.check:
         if not args.soft_disable_only:
-            print("Removing extra partitions...")
-            mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
-            mef.fill_range(ftpr_offset + ftpr_lenght, me_end, b"\xff")
+            print("Removing unused partitions...")
+            new_partitions = b""
+            min_start = 0xffffffff
+            extra_partitions = ()
+            if args.extra_partitions:
+                extra_partitions = args.extra_partitions.split(",")
+                # Add \0 to partition names under 4 characters. This fixes 'MFS' into 'MFS\0'
+                extra_partitions = tuple(map(lambda x: x + ('\0' * (4 - len(x))),
+                                        extra_partitions))
 
-            print("Removing extra partition entries in FPT...")
-            mef.write_to(me_start + 0x30, ftpr_header)
-            mef.write_to(me_start + 0x14, pack("<I", 1))
+            for i in range(entries):
+                partition = partitions[i * 0x20:(i + 1) * 0x20]
+                part_name = partition[0:4]
+                part_start, part_length =  unpack("<II", partition[0x08:0x10])
+                part_end = part_start + part_length
+                unremovable = part_name in (unremovable_partitions + extra_partitions)
+                print(" {}\t ({:<#8x} - {:<#8x} ({:<#8x} total bytes)): {}"
+                      .format(part_name, part_start, part_end, part_length,
+                              "NOT removed" if unremovable else "removed"))
+                if part_start != 0 and part_start < min_start and unremovable:
+                    min_start = part_start
+                if unremovable:
+                    new_partitions += partition
+                elif part_start != 0 and part_length != 0:
+                    mef.fill_range(me_start + part_start, me_start + part_end, b"\xff")
+
+            print("Removing unused partition entries in FPT...")
+            mef.write_to(me_start + 0x30, new_partitions)
+            mef.write_to(me_start + 0x14, pack("<I", len(new_partitions) / 0x20))
+            mef.fill_range(me_start + 0x30 + len(new_partitions),
+                           me_start + min_start, b"\xff")
 
             print("Removing EFFS presence flag...")
             mef.seek(me_start + 0x24)
@@ -641,7 +666,7 @@ if __name__ == "__main__":
             if me11:
                 end_addr, ftpr_offset = \
                     check_and_remove_modules_me11(mef, me_start, me_end,
-                                                  ftpr_offset, ftpr_lenght,
+                                                  ftpr_offset, ftpr_length,
                                                   min_ftpr_offset,
                                                   args.relocate,
                                                   args.keep_modules)
