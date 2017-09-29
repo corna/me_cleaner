@@ -27,6 +27,7 @@ min_ftpr_offset = 0x400
 spared_blocks = 4
 unremovable_modules = ("ROMP", "BUP")
 unremovable_modules_me11 = ("rbe", "kernel", "syslib", "bup")
+unremovable_partitions = ["FTPR"]
 
 
 class OutOfRegionException(Exception):
@@ -457,6 +458,11 @@ if __name__ == "__main__":
                         action="store_true")
     parser.add_argument("-k", "--keep-modules", help="don't remove the FTPR "
                         "modules, even when possible", action="store_true")
+    parser.add_argument("-w", "--whitelist", metavar="whitelist",
+                        help="Comma separated list of extra partitions to keep"
+                        "in the final image. This can be used to specify the "
+                        "MFS partition for example, which stores PCIe and "
+                        "clock settings")
     parser.add_argument("-d", "--descriptor", help="remove the ME/TXE "
                         "Read/Write permissions to the other regions on the "
                         "flash from the Intel Flash Descriptor (requires a "
@@ -603,13 +609,51 @@ if __name__ == "__main__":
 
     if not args.check:
         if not args.soft_disable_only:
-            print("Removing extra partitions...")
-            mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
-            mef.fill_range(ftpr_offset + ftpr_length, me_end, b"\xff")
+            print("Reading partitions list...")
+            unremovable_part = []
+            unremovable_part_fpt = b""
 
-            print("Removing extra partition entries in FPT...")
-            mef.write_to(me_start + 0x30, ftpr_header)
-            mef.write_to(me_start + 0x14, pack("<I", 1))
+            unremovable_part += unremovable_partitions
+            if args.whitelist:
+                unremovable_part += args.whitelist.split(",")
+
+            for i in range(entries):
+                partition = partitions[i * 0x20:(i + 1) * 0x20]
+
+                try:
+                    part_name = \
+                        partition[0x0:0x4].rstrip(b"\x00").decode("ascii")
+                except UnicodeDecodeError:
+                    part_name = "????"
+
+                part_start, part_length = unpack("<II", partition[0x08:0x10])
+                part_end = part_start + part_length
+
+                if part_start == 0 or part_length == 0 or part_end > me_end:
+                    print(" {:<4} ({:^23}, 0x{:08x} total bytes): nothing to "
+                          "remove"
+                          .format(part_name, "no data here", part_length))
+                else:
+                    sys.stdout.write(" {:<4} (0x{:08x} - 0x{:08x}, 0x{:08x} "
+                                     "total bytes): ".format(part_name,
+                                                             part_start,
+                                                             part_end,
+                                                             part_length))
+                    if part_name in unremovable_part:
+                        unremovable_part_fpt += partition
+                        print("NOT removed")
+                    else:
+                        mef.fill_range(me_start + part_start,
+                                       me_start + part_end, b"\xff")
+                        print("removed")
+
+            print("Removing partition entries in FPT...")
+            mef.write_to(me_start + 0x30, unremovable_part_fpt)
+            mef.write_to(me_start + 0x14,
+                         pack("<I", len(unremovable_part_fpt) // 0x20))
+
+            mef.fill_range(me_start + 0x30 + len(unremovable_part_fpt),
+                           me_start + 0x30 + len(partitions), b"\xff")
 
             print("Removing EFFS presence flag...")
             mef.seek(me_start + 0x24)
