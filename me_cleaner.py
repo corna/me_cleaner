@@ -325,7 +325,7 @@ def check_and_remove_modules(f, me_start, me_end, offset, min_offset,
 
         if all(hdr.startswith(b"$MME") for hdr in mod_headers):
             if args.keep_modules:
-                end_addr = offset + ftpr_lenght
+                end_addr = offset + ftpr_length
             else:
                 end_addr = remove_modules(f, mod_headers,
                                           offset, me_end)
@@ -351,13 +351,13 @@ def check_and_remove_modules(f, me_start, me_end, offset, min_offset,
 
 
 def check_and_remove_modules_me11(f, me_start, me_end, partition_offset,
-                                  partition_lenght, min_offset, relocate,
+                                  partition_length, min_offset, relocate,
                                   keep_modules):
 
     comp_str = ("LZMA/uncomp.", "Huffman")
 
     if keep_modules:
-        end_data = partition_offset + partition_lenght
+        end_data = partition_offset + partition_length
     else:
         end_data = 0
 
@@ -365,7 +365,7 @@ def check_and_remove_modules_me11(f, me_start, me_end, partition_offset,
         module_count = unpack("<I", f.read(4))[0]
 
         modules = []
-        modules.append(("end", partition_lenght, 0))
+        modules.append(("end", partition_length, 0))
 
         f.seek(partition_offset + 0x10)
         for i in range(0, module_count):
@@ -555,10 +555,10 @@ if __name__ == "__main__":
     if ftpr_header == b"":
         sys.exit("FTPR header not found, this image doesn't seem to be valid")
 
-    ftpr_offset, ftpr_lenght = unpack("<II", ftpr_header[0x08:0x10])
+    ftpr_offset, ftpr_length = unpack("<II", ftpr_header[0x08:0x10])
     ftpr_offset += me_start
     print("Found FTPR header: FTPR partition spans from {:#x} to {:#x}"
-          .format(ftpr_offset, ftpr_offset + ftpr_lenght))
+          .format(ftpr_offset, ftpr_offset + ftpr_length))
 
     f.seek(ftpr_offset)
     if f.read(4) == b"$CPD":
@@ -608,7 +608,7 @@ if __name__ == "__main__":
         if not args.soft_disable_only:
             print("Removing extra partitions...")
             mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
-            mef.fill_range(ftpr_offset + ftpr_lenght, me_end, b"\xff")
+            mef.fill_range(ftpr_offset + ftpr_length, me_end, b"\xff")
 
             print("Removing extra partition entries in FPT...")
             mef.write_to(me_start + 0x30, ftpr_header)
@@ -641,7 +641,7 @@ if __name__ == "__main__":
             if me11:
                 end_addr, ftpr_offset = \
                     check_and_remove_modules_me11(mef, me_start, me_end,
-                                                  ftpr_offset, ftpr_lenght,
+                                                  ftpr_offset, ftpr_length,
                                                   min_ftpr_offset,
                                                   args.relocate,
                                                   args.keep_modules)
