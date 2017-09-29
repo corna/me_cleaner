@@ -27,7 +27,7 @@ min_ftpr_offset = 0x400
 spared_blocks = 4
 unremovable_modules = ("ROMP", "BUP")
 unremovable_modules_me11 = ("rbe", "kernel", "syslib", "bup")
-
+unremovable_partitions = ("FTPR",)
 
 class OutOfRegionException(Exception):
     pass
@@ -604,12 +604,29 @@ if __name__ == "__main__":
     if not args.check:
         if not args.soft_disable_only:
             print("Removing extra partitions...")
-            mef.fill_range(me_start + 0x30, ftpr_offset, b"\xff")
-            mef.fill_range(ftpr_offset + ftpr_length, me_end, b"\xff")
+            new_partitions = b""
+            min_start = 0xffffffff
+            for i in range(entries):
+                partition = partitions[i * 0x20:(i + 1) * 0x20]
+                part_name = partition[0:4]
+                part_start, part_length =  unpack("<II", partition[0x08:0x10])
+                part_end = part_start + part_length
+                unremovable = part_name in unremovable_partitions
+                print(" {}\t ({:<#8x} - {:<#8x} ({:<#8x} total bytes)): {}"
+                      .format(part_name, part_start, part_end, part_length,
+                              "NOT removed" if unremovable else "removed"))
+                if part_start != 0 and part_start < min_start and unremovable:
+                    min_start = part_start
+                if unremovable:
+                    new_partitions += partition
+                elif part_start != 0 and part_length != 0:
+                    mef.fill_range(me_start + part_start, me_start + part_end, b"\xff")
 
             print("Removing extra partition entries in FPT...")
-            mef.write_to(me_start + 0x30, ftpr_header)
-            mef.write_to(me_start + 0x14, pack("<I", 1))
+            mef.write_to(me_start + 0x30, new_partitions)
+            mef.write_to(me_start + 0x14, pack("<I", len(new_partitions) / 0x20))
+            mef.fill_range(me_start + 0x30 + len(new_partitions),
+                           me_start + min_start, b"\xff")
 
             print("Removing EFFS presence flag...")
             mef.seek(me_start + 0x24)
