@@ -539,9 +539,6 @@ if __name__ == "__main__":
     entries = unpack("<I", f.read(4))[0]
     print("Found {} partition(s)".format(entries))
 
-    f.seek(me_start + 0x14)
-    header_len = unpack("B", f.read(1))[0]
-
     f.seek(me_start + 0x30)
     partitions = f.read(entries * 0x20)
 
