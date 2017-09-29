@@ -457,6 +457,10 @@ if __name__ == "__main__":
                         action="store_true")
     parser.add_argument("-k", "--keep-modules", help="don't remove the FTPR "
                         "modules, even when possible", action="store_true")
+    parser.add_argument("-e", "--extra-partitions", metavar="partition_list",
+                        help="Comma separated list of extra partitions to keep"
+                        "in the final image. This can be used to specify the MFS"
+                        "partition for example, which stores PCIe and clock settings")
     parser.add_argument("-d", "--descriptor", help="remove the ME/TXE "
                         "Read/Write permissions to the other regions on the "
                         "flash from the Intel Flash Descriptor (requires a "
@@ -606,12 +610,19 @@ if __name__ == "__main__":
             print("Removing extra partitions...")
             new_partitions = b""
             min_start = 0xffffffff
+            extra_partitions = ()
+            if args.extra_partitions:
+                extra_partitions = args.extra_partitions.split(",")
+                # Add \0 to partition names under 4 characters. This fixes 'MFS' into 'MFS\0'
+                extra_partitions = tuple(map(lambda x: x + ('\0' * (4 - len(x))),
+                                        extra_partitions))
+
             for i in range(entries):
                 partition = partitions[i * 0x20:(i + 1) * 0x20]
                 part_name = partition[0:4]
                 part_start, part_length =  unpack("<II", partition[0x08:0x10])
                 part_end = part_start + part_length
-                unremovable = part_name in unremovable_partitions
+                unremovable = part_name in (unremovable_partitions + extra_partitions)
                 print(" {}\t ({:<#8x} - {:<#8x} ({:<#8x} total bytes)): {}"
                       .format(part_name, part_start, part_end, part_length,
                               "NOT removed" if unremovable else "removed"))
