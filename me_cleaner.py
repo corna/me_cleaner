@@ -27,7 +27,7 @@ min_ftpr_offset = 0x400
 spared_blocks = 4
 unremovable_modules = ("ROMP", "BUP")
 unremovable_modules_me11 = ("rbe", "kernel", "syslib", "bup")
-unremovable_partitions = ["FTPR"]
+unremovable_partitions = ("FTPR",)
 
 
 class OutOfRegionException(Exception):
@@ -438,6 +438,8 @@ if __name__ == "__main__":
                                      "as possible from Intel ME/TXE firmware "
                                      "images")
     softdis = parser.add_mutually_exclusive_group()
+    bw_list = parser.add_mutually_exclusive_group()
+
     parser.add_argument("file", help="ME/TXE image or full dump")
     parser.add_argument("-O", "--output", metavar='output_file', help="save "
                         "the modified image in a separate file, instead of "
@@ -458,11 +460,15 @@ if __name__ == "__main__":
                         action="store_true")
     parser.add_argument("-k", "--keep-modules", help="don't remove the FTPR "
                         "modules, even when possible", action="store_true")
-    parser.add_argument("-w", "--whitelist", metavar="whitelist",
-                        help="Comma separated list of extra partitions to keep"
-                        "in the final image. This can be used to specify the "
-                        "MFS partition for example, which stores PCIe and "
-                        "clock settings")
+    bw_list.add_argument("-w", "--whitelist", metavar="whitelist",
+                         help="Comma separated list of additional partitions "
+                         "to keep in the final image. This can be used to "
+                         "specify the MFS partition for example, which stores "
+                         "PCIe and clock settings.")
+    bw_list.add_argument("-b", "--blacklist", metavar="blacklist",
+                         help="Comma separated list of partitions to remove "
+                         "from the image. This option overrides the default "
+                         "removal list.")
     parser.add_argument("-d", "--descriptor", help="remove the ME/TXE "
                         "Read/Write permissions to the other regions on the "
                         "flash from the Intel Flash Descriptor (requires a "
@@ -484,12 +490,16 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.check and (args.soft_disable_only or args.soft_disable or \
+    if args.check and (args.soft_disable_only or args.soft_disable or
        args.relocate or args.descriptor or args.truncate or args.output):
         sys.exit("-c can't be used with -S, -s, -r, -d, -t or -O")
 
     if args.soft_disable_only and (args.relocate or args.truncate):
         sys.exit("-s can't be used with -r or -t")
+
+    if (args.whitelist or args.blacklist) and args.relocate:
+        sys.exit("Relocation is not yet supported with custom whitelist or "
+                 "blacklist")
 
     f = open(args.file, "rb" if args.check or args.output else "r+b")
     f.seek(0x10)
@@ -610,12 +620,17 @@ if __name__ == "__main__":
     if not args.check:
         if not args.soft_disable_only:
             print("Reading partitions list...")
-            unremovable_part = []
             unremovable_part_fpt = b""
+            extra_part_end = 0
+            whitelist = []
+            blacklist = []
 
-            unremovable_part += unremovable_partitions
-            if args.whitelist:
-                unremovable_part += args.whitelist.split(",")
+            whitelist += unremovable_partitions
+
+            if args.blacklist:
+                blacklist = args.blacklist.split(",")
+            elif args.whitelist:
+                whitelist += args.whitelist.split(",")
 
             for i in range(entries):
                 partition = partitions[i * 0x20:(i + 1) * 0x20]
@@ -631,7 +646,7 @@ if __name__ == "__main__":
                 part_end = part_start + part_length
 
                 if flags & 0x7f == 2:
-                   print(" {:<4} ({:^24}, 0x{:08x} total bytes): nothing to "
+                    print(" {:<4} ({:^24}, 0x{:08x} total bytes): nothing to "
                           "remove"
                           .format(part_name, "NVRAM partition, no data",
                                   part_length))
@@ -645,8 +660,11 @@ if __name__ == "__main__":
                                                              part_start,
                                                              part_end,
                                                              part_length))
-                    if part_name in unremovable_part:
+                    if part_name in whitelist or (blacklist and
+                       part_name not in blacklist):
                         unremovable_part_fpt += partition
+                        if part_name != "FTPR":
+                            extra_part_end = max(extra_part_end, part_end)
                         print("NOT removed")
                     else:
                         mef.fill_range(me_start + part_start,
@@ -661,11 +679,13 @@ if __name__ == "__main__":
             mef.fill_range(me_start + 0x30 + len(unremovable_part_fpt),
                            me_start + 0x30 + len(partitions), b"\xff")
 
-            print("Removing EFFS presence flag...")
-            mef.seek(me_start + 0x24)
-            flags = unpack("<I", mef.read(4))[0]
-            flags &= ~(0x00000001)
-            mef.write_to(me_start + 0x24, pack("<I", flags))
+            if (not blacklist and "EFFS" not in whitelist) or \
+               "EFFS" in blacklist:
+                print("Removing EFFS presence flag...")
+                mef.seek(me_start + 0x24)
+                flags = unpack("<I", mef.read(4))[0]
+                flags &= ~(0x00000001)
+                mef.write_to(me_start + 0x24, pack("<I", flags))
 
             if me11:
                 mef.seek(me_start + 0x10)
@@ -699,6 +719,7 @@ if __name__ == "__main__":
                                              args.keep_modules)
 
             if end_addr > 0:
+                end_addr = max(end_addr, extra_part_end)
                 end_addr = (end_addr // 0x1000 + 1) * 0x1000
                 end_addr += spared_blocks * 0x1000
 
