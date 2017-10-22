@@ -619,6 +619,7 @@ if __name__ == "__main__":
 
             for i in range(entries):
                 partition = partitions[i * 0x20:(i + 1) * 0x20]
+                flags = unpack("<I", partition[0x1c:0x20])[0]
 
                 try:
                     part_name = \
@@ -629,12 +630,17 @@ if __name__ == "__main__":
                 part_start, part_length = unpack("<II", partition[0x08:0x10])
                 part_end = part_start + part_length
 
-                if part_start == 0 or part_length == 0 or part_end > me_end:
-                    print(" {:<4} ({:^23}, 0x{:08x} total bytes): nothing to "
+                if flags & 0x7f == 2:
+                   print(" {:<4} ({:^24}, 0x{:08x} total bytes): nothing to "
+                          "remove"
+                          .format(part_name, "NVRAM partition, no data",
+                                  part_length))
+                elif part_start == 0 or part_length == 0 or part_end > me_end:
+                    print(" {:<4} ({:^24}, 0x{:08x} total bytes): nothing to "
                           "remove"
                           .format(part_name, "no data here", part_length))
                 else:
-                    sys.stdout.write(" {:<4} (0x{:08x} - 0x{:08x}, 0x{:08x} "
+                    sys.stdout.write(" {:<4} (0x{:08x} - 0x{:09x}, 0x{:08x} "
                                      "total bytes): ".format(part_name,
                                                              part_start,
                                                              part_end,
