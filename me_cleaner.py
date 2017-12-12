@@ -29,6 +29,22 @@ unremovable_modules = ("ROMP", "BUP")
 unremovable_modules_me11 = ("rbe", "kernel", "syslib", "bup")
 unremovable_partitions = ("FTPR",)
 
+pubkeys_md5 = {
+    "763e59ebe235e45a197a5b1a378dfa04": ("ME",  ("6.x.x.x",)),
+    "3a98c847d609c253e145bd36512629cb": ("ME",  ("6.0.50.x",)),
+    "0903fc25b0f6bed8c4ed724aca02124c": ("ME",  ("7.x.x.x", "8.x.x.x")),
+    "2011ae6df87c40fba09e3f20459b1ce0": ("ME",  ("9.0.x.x", "9.1.x.x")),
+    "e8427c5691cf8b56bc5cdd82746957ed": ("ME",  ("9.5.x.x", "10.x.x.x")),
+    "986a78e481f185f7d54e4af06eb413f6": ("ME",  ("11.x.x.x",)),
+    "bda0b6bb8ca0bf0cac55ac4c4d55e0f2": ("TXE", ("1.x.x.x",)),
+    "b726a2ab9cd59d4e62fe2bead7cf6997": ("TXE", ("1.x.x.x",)),
+    "0633d7f951a3e7968ae7460861be9cfb": ("TXE", ("2.x.x.x",)),
+    "1d0a36e9f5881540d8e4b382c6612ed8": ("TXE", ("3.x.x.x",)),
+    "be900fef868f770d266b1fc67e887e69": ("SPS", ("2.x.x.x",)),
+    "4622e3f2cb212a89c90a4de3336d88d2": ("SPS", ("3.x.x.x",)),
+    "31ef3d950eac99d18e187375c0764ca4": ("SPS", ("4.x.x.x",))
+}
+
 
 class OutOfRegionException(Exception):
     pass
@@ -606,6 +622,23 @@ if __name__ == "__main__":
     version = unpack("<HHHH", f.read(0x08))
     print("ME/TXE firmware version {}"
           .format('.'.join(str(i) for i in version)))
+
+    f.seek(ftpr_offset + ftpr_mn2_offset + 0x80)
+    pubkey_md5 = hashlib.md5(f.read(0x104)).hexdigest()
+
+    if pubkey_md5 in pubkeys_md5:
+        variant, pubkey_versions = pubkeys_md5[pubkey_md5]
+        print("Public key match: Intel {}, firmware versions {}"
+                      .format(variant, ", ".join(pubkey_versions)))
+    else:
+        if version[0] >= 6:
+            variant = "ME"
+        else:
+            variant = "TXE"
+        print("WARNING Unknown public key {}\n"
+              "        Assuming Intel {}\n"
+              "        Please report this warning to the project's maintainer!"
+              .format(pubkey_md5, variant))
 
     if not args.check and args.output:
         f.close()
