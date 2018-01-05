@@ -153,7 +153,7 @@ def remove_modules(f, mod_headers, ftpr_offset, me_end):
         print(" {:<16} ({:<7}, ".format(name, comp_str[comp_type]), end="")
 
         if comp_type == 0x00 or comp_type == 0x02:
-            print("0x{:06x} - 0x{:06x}): "
+            print("0x{:06x} - 0x{:06x}       ): "
                   .format(offset, offset + size), end="")
 
             if name in unremovable_modules:
@@ -165,7 +165,6 @@ def remove_modules(f, mod_headers, ftpr_offset, me_end):
                 print("removed")
 
         elif comp_type == 0x01:
-            print("fragmented data    ): ", end="")
             if not chunks_offsets:
                 f.seek(offset)
                 llut = f.read(4)
@@ -181,12 +180,21 @@ def remove_modules(f, mod_headers, ftpr_offset, me_end):
                 else:
                     sys.exit("Huffman modules found, but LLUT is not present")
 
+            module_base = unpack("<I", mod_header[0x34:0x38])[0]
+            module_size = unpack("<I", mod_header[0x3c:0x40])[0]
+            first_chunk_num = (module_base - base) // chunk_size
+            last_chunk_num = first_chunk_num + module_size // chunk_size
+            huff_size = 0
+
+            for chunk in chunks_offsets[first_chunk_num:last_chunk_num + 1]:
+                huff_size += chunk[1] - chunk[0]
+
+            print("fragmented data, {:<9}): "
+                  .format("~" + str(int(round(huff_size / 1024))) + " KiB"),
+                  end="")
+
             if name in unremovable_modules:
                 print("NOT removed, essential")
-                module_base = unpack("<I", mod_header[0x34:0x38])[0]
-                module_size = unpack("<I", mod_header[0x3c:0x40])[0]
-                first_chunk_num = (module_base - base) // chunk_size
-                last_chunk_num = first_chunk_num + module_size // chunk_size
 
                 unremovable_huff_chunks += \
                     [x for x in chunks_offsets[first_chunk_num:
