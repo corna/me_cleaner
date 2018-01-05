@@ -14,6 +14,8 @@
 # GNU General Public License for more details.
 #
 
+from __future__ import print_function
+
 import argparse
 import binascii
 import hashlib
@@ -148,11 +150,11 @@ def remove_modules(f, mod_headers, ftpr_offset, me_end):
         flags = unpack("<I", mod_header[0x50:0x54])[0]
         comp_type = (flags >> 4) & 7
 
-        sys.stdout.write(" {:<16} ({:<7}, ".format(name, comp_str[comp_type]))
+        print(" {:<16} ({:<7}, ".format(name, comp_str[comp_type]), end="")
 
         if comp_type == 0x00 or comp_type == 0x02:
-            sys.stdout.write("0x{:06x} - 0x{:06x}): "
-                             .format(offset, offset + size))
+            print("0x{:06x} - 0x{:06x}): "
+                  .format(offset, offset + size), end="")
 
             if name in unremovable_modules:
                 end_addr = max(end_addr, offset + size)
@@ -163,7 +165,7 @@ def remove_modules(f, mod_headers, ftpr_offset, me_end):
                 print("removed")
 
         elif comp_type == 0x01:
-            sys.stdout.write("fragmented data    ): ")
+            print("fragmented data    ): ", end="")
             if not chunks_offsets:
                 f.seek(offset)
                 llut = f.read(4)
@@ -193,8 +195,8 @@ def remove_modules(f, mod_headers, ftpr_offset, me_end):
                 print("removed")
 
         else:
-            sys.stdout.write("0x{:06x} - 0x{:06x}): unknown compression, "
-                             "skipping".format(offset, offset + size))
+            print("0x{:06x} - 0x{:06x}): unknown compression, skipping"
+                  .format(offset, offset + size), end="")
 
     if chunks_offsets:
         removable_huff_chunks = []
@@ -407,8 +409,8 @@ def check_and_remove_modules_me11(f, me_start, me_end, partition_offset,
             else:
                 compression = comp_str[modules[i][2]]
 
-            sys.stdout.write(" {:<12} ({:<12}, 0x{:06x} - 0x{:06x}): "
-                             .format(name, compression, offset, end))
+            print(" {:<12} ({:<12}, 0x{:06x} - 0x{:06x}): "
+                  .format(name, compression, offset, end), end="")
 
             if name.endswith(".man"):
                 print("NOT removed, partition manif.")
@@ -688,11 +690,9 @@ if __name__ == "__main__":
                           "remove"
                           .format(part_name, "no data here", part_length))
                 else:
-                    sys.stdout.write(" {:<4} (0x{:08x} - 0x{:09x}, 0x{:08x} "
-                                     "total bytes): ".format(part_name,
-                                                             part_start,
-                                                             part_end,
-                                                             part_length))
+                    print(" {:<4} (0x{:08x} - 0x{:09x}, 0x{:08x} total bytes): "
+                          .format(part_name, part_start, part_end, part_length),
+                          end="")
                     if part_name in whitelist or (blacklist and
                        part_name not in blacklist):
                         unremovable_part_fpt += partition
@@ -831,13 +831,13 @@ if __name__ == "__main__":
                   .format(args.extract_me))
             mef_copy = mef.save(args.extract_me, me_end - me_start)
 
-        sys.stdout.write("Checking the FTPR RSA signature of the extracted ME "
-                         "image... ")
+        print("Checking the FTPR RSA signature of the extracted ME image... ",
+              end="")
         print_check_partition_signature(mef_copy, ftpr_offset +
                                         ftpr_mn2_offset - me_start)
         mef_copy.close()
 
-    sys.stdout.write("Checking the FTPR RSA signature... ")
+    print("Checking the FTPR RSA signature... ", end="")
     print_check_partition_signature(f, ftpr_offset + ftpr_mn2_offset)
 
     f.close()
