@@ -797,7 +797,7 @@ if __name__ == "__main__":
     if args.descriptor:
         print("Removing ME/TXE R/W access to the other flash regions...")
         if me11:
-            flmstr2 = 0x00400400
+            flmstr2 = 0x00400500
         else:
             fdf.seek(fmba + 0x4)
             flmstr2 = (unpack("<I", fdf.read(4))[0] | 0x04040000) & 0x0404ffff
