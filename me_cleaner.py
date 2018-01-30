@@ -691,6 +691,12 @@ if __name__ == "__main__":
                     part_name = "????"
 
                 part_start, part_length = unpack("<II", partition[0x08:0x10])
+
+                # ME 6: the last partition has 0xffffffff as size
+                if variant == "ME" and version[0] == 6 and \
+                   i == entries - 1 and part_length == 0xffffffff:
+                    part_length = me_end - part_start
+
                 part_end = part_start + part_length
 
                 if flags & 0x7f == 2:
