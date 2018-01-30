@@ -94,6 +94,9 @@ class RegionFile:
         else:
             raise OutOfRegionException()
 
+    def fill_all(self, fill):
+        self.fill_range(0, self.region_end - self.region_start, fill)
+
     def move_range(self, offset_from, size, offset_to, fill):
         if self.region_start + offset_from + size <= self.region_end and \
            self.region_start + offset_to + size <= self.region_end:
@@ -665,8 +668,22 @@ if __name__ == "__main__":
     if me_start > 0:
         fdf = RegionFile(f, fd_start, fd_end + 1)
 
+    # ME 6 Ignition: wipe everything
+    me6_ignition = False
+    if not args.check and not args.soft_disable_only and \
+       variant == "ME" and version[0] == 6:
+        mef.seek(ftpr_offset + 0x20)
+        num_modules = unpack("<I", mef.read(4))[0]
+        mef.seek(ftpr_offset + 0x290 + (num_modules + 1) * 0x60)
+        data = mef.read(0xc)
+
+        if data[0x0:0x4] == b"$SKU" and data[0x8:0xc] == b"\x00\x00\x00\x00":
+            print("ME 6 Ignition firmware detected, removing everything...")
+            mef.fill_all(b"\xff")
+            me6_ignition = True
+
     if not args.check:
-        if not args.soft_disable_only:
+        if not args.soft_disable_only and not me6_ignition:
             print("Reading partitions list...")
             unremovable_part_fpt = b""
             extra_part_end = 0
@@ -852,13 +869,16 @@ if __name__ == "__main__":
                   .format(args.extract_me))
             mef_copy = mef.save(args.extract_me, me_end - me_start)
 
-        print("Checking the FTPR RSA signature of the extracted ME image... ",
-              end="")
-        print_check_partition_signature(mef_copy, ftpr_offset + ftpr_mn2_offset)
+        if not me6_ignition:
+            print("Checking the FTPR RSA signature of the extracted ME "
+                  "image... ", end="")
+            print_check_partition_signature(mef_copy,
+                                            ftpr_offset + ftpr_mn2_offset)
         mef_copy.close()
 
-    print("Checking the FTPR RSA signature... ", end="")
-    print_check_partition_signature(mef, ftpr_offset + ftpr_mn2_offset)
+    if not me6_ignition:
+        print("Checking the FTPR RSA signature... ", end="")
+        print_check_partition_signature(mef, ftpr_offset + ftpr_mn2_offset)
 
     f.close()
 
