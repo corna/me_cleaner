@@ -14,7 +14,7 @@
 # GNU General Public License for more details.
 #
 
-from __future__ import print_function
+from __future__ import division, print_function
 
 import argparse
 import binascii
@@ -347,24 +347,24 @@ def check_and_remove_modules(f, me_end, offset, min_offset,
     f.seek(offset + 0x290)
     data = f.read(0x84)
 
-    module_header_size = 0
+    mod_header_size = 0
     if data[0x0:0x4] == b"$MME":
         if data[0x60:0x64] == b"$MME" or num_modules == 1:
-            module_header_size = 0x60
+            mod_header_size = 0x60
         elif data[0x80:0x84] == b"$MME":
-            module_header_size = 0x80
+            mod_header_size = 0x80
 
-    if module_header_size != 0:
+    if mod_header_size != 0:
         f.seek(offset + 0x290)
-        mod_headers = [f.read(module_header_size)
+        data = f.read(mod_header_size * num_modules)
+        mod_headers = [data[i * mod_header_size:(i + 1) * mod_header_size]
                        for i in range(0, num_modules)]
 
         if all(hdr.startswith(b"$MME") for hdr in mod_headers):
             if args.keep_modules:
                 end_addr = offset + ftpr_length
             else:
-                end_addr = remove_modules(f, mod_headers,
-                                          offset, me_end)
+                end_addr = remove_modules(f, mod_headers, offset, me_end)
 
             if args.relocate:
                 new_offset = relocate_partition(f, me_end, 0x30, min_offset,
@@ -647,7 +647,7 @@ if __name__ == "__main__":
     if pubkey_md5 in pubkeys_md5:
         variant, pubkey_versions = pubkeys_md5[pubkey_md5]
         print("Public key match: Intel {}, firmware versions {}"
-                      .format(variant, ", ".join(pubkey_versions)))
+              .format(variant, ", ".join(pubkey_versions)))
     else:
         if version[0] >= 6:
             variant = "ME"
