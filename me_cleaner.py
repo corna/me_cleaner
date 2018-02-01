@@ -547,7 +547,7 @@ if __name__ == "__main__":
         f.seek(0, 2)
         me_start = 0
         me_end = f.tell()
-        mef = RegionFile(f, me_start, me_end + 1)
+        mef = RegionFile(f, me_start, me_end)
 
     elif magic == b"\x5a\xa5\xf0\x0f":
         print("Full image detected")
@@ -571,7 +571,7 @@ if __name__ == "__main__":
         if me_start >= me_end:
             sys.exit("The ME/TXE region in this image has been disabled")
 
-        mef = RegionFile(f, me_start, me_end + 1)
+        mef = RegionFile(f, me_start, me_end)
 
         mef.seek(0x10)
         if mef.read(4) != b"$FPT":
@@ -663,10 +663,10 @@ if __name__ == "__main__":
         shutil.copy(args.file, args.output)
         f = open(args.output, "r+b")
 
-    mef = RegionFile(f, me_start, me_end + 1)
+    mef = RegionFile(f, me_start, me_end)
 
     if me_start > 0:
-        fdf = RegionFile(f, fd_start, fd_end + 1)
+        fdf = RegionFile(f, fd_start, fd_end)
 
     # ME 6 Ignition: wipe everything
     me6_ignition = False
