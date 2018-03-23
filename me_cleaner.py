@@ -712,7 +712,7 @@ if __name__ == "__main__":
                 # ME 6: the last partition has 0xffffffff as size
                 if variant == "ME" and version[0] == 6 and \
                    i == entries - 1 and part_length == 0xffffffff:
-                    part_length = me_end - part_start
+                    part_length = me_end - me_start - part_start
 
                 part_end = part_start + part_length
 
