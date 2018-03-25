@@ -472,6 +472,9 @@ if __name__ == "__main__":
     softdis = parser.add_mutually_exclusive_group()
     bw_list = parser.add_mutually_exclusive_group()
 
+    parser.add_argument("-v", "--version", action="version",
+                        version="%(prog)s 1.1")
+
     parser.add_argument("file", help="ME/TXE image or full dump")
     parser.add_argument("-O", "--output", metavar='output_file', help="save "
                         "the modified image in a separate file, instead of "
