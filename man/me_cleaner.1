@@ -1,0 +1,159 @@
+.TH me_cleaner 1 "MARCH 2018"
+.SH me_cleaner
+.PP
+me_cleaner \-  Tool for partial deblobbing of Intel ME/TXE firmware images 
+.SH SYNOPSIS
+.PP
+\fB\fCme_cleaner.py\fR [\-h] [\-v] [\-O output_file] [\-S | \-s] [\-r] [\-k]
+[\-w whitelist | \-b blacklist] [\-d] [\-t] [\-c] [\-D output_descriptor]
+[\-M output_me_image] \fIfile\fP
+.SH DESCRIPTION
+.PP
+\fB\fCme_cleaner\fR is a tool able to disable parts of Intel ME/TXE by:
+.RS
+.IP \(bu 2
+removing most of the code from its firmware
+.IP \(bu 2
+setting a special bit to force it to disable itself after the hardware
+initialization
+.RE
+.PP
+Using both the modes seems to be the most reliable way on many platforms.
+.PP
+The resulting modified firmware needs to be flashed (in most of the cases) with
+an external programmer, often a dedicated SPI programmer or a Linux board with
+a SPI master interface.
+.PP
+\fB\fCme_cleaner\fR works at least from Nehalem to Coffee Lake (for Intel ME) and on
+Braswell/Cherry Trail (for Intel TXE), but may work as well on newer or
+different architectures.
+.PP
+While \fB\fCme_cleaner\fR have been tested on a great number of platforms, fiddling
+with the Intel ME/TXE firmware is \fIvery dangerous\fP and can easily lead to a
+dead PC.
+.PP
+\fIYOU HAVE BEEN WARNED.\fP
+.SH POSITIONAL ARGUMENTS
+.TP
+\fB\fCfile\fR
+ME/TXE image or full dump.
+.SH OPTIONAL ARGUMENTS
+.TP
+\fB\fC\-h\fR, \fB\fC\-\-help\fR
+Show the help message and exit.
+.TP
+\fB\fC\-v\fR, \fB\fC\-\-version\fR
+Show program's version number and exit.
+.TP
+\fB\fC\-O\fR, \fB\fC\-\-output\fR
+Save the modified image in a separate file, instead of modifying the
+original file.
+.TP
+\fB\fC\-S\fR, \fB\fC\-\-soft\-disable\fR
+In addition to the usual operations on the ME/TXE firmware, set the
+MeAltDisable bit or the HAP bit to ask Intel ME/TXE to disable itself after
+the hardware initialization (requires a full dump).
+.TP
+\fB\fC\-s\fR, \fB\fC\-\-soft\-disable\-only\fR
+Instead of the usual operations on the ME/TXE firmware, just set the
+MeAltDisable bit or the HAP bit to ask Intel ME/TXE to disable itself after
+the hardware initialization (requires a full dump).
+.TP
+\fB\fC\-r\fR, \fB\fC\-\-relocate\fR
+Relocate the FTPR partition to the top of the ME region to save even more
+space.
+.TP
+\fB\fC\-t\fR, \fB\fC\-\-truncate\fR
+Truncate the empty part of the firmware (requires a separated ME/TXE image or
+\fB\fC\-\-extract\-me\fR).
+.TP
+\fB\fC\-k\fR, \fB\fC\-\-keep\-modules\fR
+Don't remove the FTPR modules, even when possible.
+.TP
+\fB\fC\-w\fR, \fB\fC\-\-whitelist\fR
+Comma separated list of additional partitions to keep in the final image.
+This can be used to specify the MFS partition for example, which stores PCIe
+and clock settings.
+.TP
+\fB\fC\-b\fR, \fB\fC\-\-blacklist\fR
+Comma separated list of partitions to remove from the image. This option
+overrides the default removal list.
+.TP
+\fB\fC\-d\fR, \fB\fC\-\-descriptor\fR
+Remove the ME/TXE Read/Write permissions to the other regions on the flash
+from the Intel Flash Descriptor (requires a full dump).
+.TP
+\fB\fC\-D\fR, \fB\fC\-\-extract\-descriptor\fR
+Extract the flash descriptor from a full dump; when used with \fB\fC\-\-truncate\fR
+save a descriptor with adjusted regions start and end.
+.TP
+\fB\fC\-M\fR, \fB\fC\-\-extract\-me\fR
+Extract the ME firmware from a full dump; when used with \fB\fC\-\-truncate\fR save a
+truncated ME/TXE image.
+.TP
+\fB\fC\-c\fR, \fB\fC\-\-check\fR
+Verify the integrity of the fundamental parts of the firmware and exit.
+.SH SUPPORTED PLATFORMS
+.PP
+Currently \fB\fCme_cleaner\fR has been tested on the following platforms:
+.TS
+allbox;
+cb cb cb cb
+c c c c
+c c c c
+c c c c
+c c c c
+c c c c
+c c c c
+c c c c
+c c c c
+.
+PCH	CPU	ME	SKU
+Ibex Peak *	Nehalem/Westmere	6.0	Ignition
+Ibex Peak *	Nehalem/Westmere	6.x	1.5/5 MB
+Cougar Point	Sandy Bridge	7.x	1.5/5 MB
+Panther Point	Ivy Bridge	8.x	1.5/5 MB
+Lynx/Wildcat Point	Haswell/Broadwell	9.x	1.5/5 MB
+Wildcat  Point LP	Broadwell Mobile	10.0	1.5/5 MB
+Sunrise Point	Skylake/Kabylake	11.x	CON/COR
+Union Point	Kabylake	11.x	CON/COR
+.TE
+.TS
+allbox;
+cb cb cb
+c c c
+.
+SoC	TXE	SKU
+Braswell/Cherry Trail	2.x	1.375 MB
+.TE
+.PP
+* Not working on coreboot
+.PP
+All the reports are available on the project's GitHub page \[la]https://github.com/corna/me_cleaner/issues/3\[ra]\&.
+.SH EXAMPLES
+.PP
+Check whether the provided image has a valid structure and signature:
+.IP
+\fB\fCme_cleaner.py \-c dumped_firmware.bin\fR
+.PP
+Remove most of the Intel ME firmware modules but don't set the HAP/AltMeDisable
+bit:
+.IP
+\fB\fCme_cleaner.py \-S \-O modified_me_firmware.bin dumped_firmware.bin\fR
+.PP
+Remove most of the Intel ME firmware modules and set the HAP/AltMeDisable bit,
+disable the Read/Write access of Intel ME to the other flash region, then
+relocate the code to the top of the image and truncate it, extracting a modified
+descriptor and ME image:
+.IP
+\fB\fCme_cleaner.py \-S \-r \-t \-d \-D ifd_shrinked.bin \-M me_shrinked.bin \-O modified_firmware.bin full_dumped_firmware.bin\fR
+.SH BUGS
+.PP
+Bugs should be reported on the project's GitHub page \[la]https://github.com/corna/me_cleaner\[ra]\&.
+.SH AUTHOR
+.PP
+Nicola Corna \[la]nicola@corna.info\[ra]
+.SH SEE ALSO
+.PP
+.BR flashrom (8), 
+me_cleaner's Wiki \[la]https://github.com/corna/me_cleaner/wiki\[ra]
