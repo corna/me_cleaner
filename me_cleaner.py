@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 # me_cleaner - Tool for partial deblobbing of Intel ME/TXE firmware images
-# Copyright (C) 2016, 2017 Nicola Corna <nicola@corna.info>
+# Copyright (C) 2016-2018 Nicola Corna <nicola@corna.info>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -490,6 +490,9 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--relocate", help="relocate the FTPR partition "
                         "to the top of the ME region to save even more space",
                         action="store_true")
+    parser.add_argument("-t", "--truncate", help="truncate the empty part of "
+                        "the firmware (requires a separated ME/TXE image or "
+                        "--extract-me)", action="store_true")
     parser.add_argument("-k", "--keep-modules", help="don't remove the FTPR "
                         "modules, even when possible", action="store_true")
     bw_list.add_argument("-w", "--whitelist", metavar="whitelist",
@@ -505,12 +508,6 @@ if __name__ == "__main__":
                         "Read/Write permissions to the other regions on the "
                         "flash from the Intel Flash Descriptor (requires a "
                         "full dump)", action="store_true")
-    parser.add_argument("-t", "--truncate", help="truncate the empty part of "
-                        "the firmware (requires a separated ME/TXE image or "
-                        "--extract-me)", action="store_true")
-    parser.add_argument("-c", "--check", help="verify the integrity of the "
-                        "fundamental parts of the firmware and exit",
-                        action="store_true")
     parser.add_argument("-D", "--extract-descriptor",
                         metavar='output_descriptor', help="extract the flash "
                         "descriptor from a full dump; when used with "
@@ -519,6 +516,9 @@ if __name__ == "__main__":
     parser.add_argument("-M", "--extract-me", metavar='output_me_image',
                         help="extract the ME firmware from a full dump; when "
                         "used with --truncate save a truncated ME/TXE image")
+    parser.add_argument("-c", "--check", help="verify the integrity of the "
+                        "fundamental parts of the firmware and exit",
+                        action="store_true")
 
     args = parser.parse_args()
 
