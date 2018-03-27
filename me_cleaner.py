@@ -671,6 +671,17 @@ if __name__ == "__main__":
     if me_start > 0:
         fdf = RegionFile(f, fd_start, fd_end)
 
+        if me11:
+            fdf.seek(fpsba)
+            pchstrp0 = unpack("<I", fdf.read(4))[0]
+            print("The HAP bit is " +
+                  ("SET" if pchstrp0 & 1 << 16 else "NOT SET"))
+        else:
+            fdf.seek(fpsba + 0x28)
+            pchstrp10 = unpack("<I", fdf.read(4))[0]
+            print("The AltMeDisable bit is " +
+                  ("SET" if pchstrp10 & 1 << 7 else "NOT SET"))
+
     # ME 6 Ignition: wipe everything
     me6_ignition = False
     if not args.check and not args.soft_disable_only and \
@@ -808,15 +819,11 @@ if __name__ == "__main__":
         if args.soft_disable or args.soft_disable_only:
             if me11:
                 print("Setting the HAP bit in PCHSTRP0 to disable Intel ME...")
-                fdf.seek(fpsba)
-                pchstrp0 = unpack("<I", fdf.read(4))[0]
                 pchstrp0 |= (1 << 16)
                 fdf.write_to(fpsba, pack("<I", pchstrp0))
             else:
                 print("Setting the AltMeDisable bit in PCHSTRP10 to disable "
                       "Intel ME...")
-                fdf.seek(fpsba + 0x28)
-                pchstrp10 = unpack("<I", fdf.read(4))[0]
                 pchstrp10 |= (1 << 7)
                 fdf.write_to(fpsba + 0x28, pack("<I", pchstrp10))
 
