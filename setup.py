@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name="me_cleaner",
-    version="1.1",
+    version="1.2",
     description="Tool for partial deblobbing of Intel ME/TXE firmware images",
     url="https://github.com/corna/me_cleaner",
     author="Nicola Corna",

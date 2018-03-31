@@ -473,7 +473,7 @@ if __name__ == "__main__":
     bw_list = parser.add_mutually_exclusive_group()
 
     parser.add_argument("-v", "--version", action="version",
-                        version="%(prog)s 1.1")
+                        version="%(prog)s 1.2")
 
     parser.add_argument("file", help="ME/TXE image or full dump")
     parser.add_argument("-O", "--output", metavar='output_file', help="save "
