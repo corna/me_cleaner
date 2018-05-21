@@ -28,10 +28,16 @@ from struct import pack, unpack
 min_ftpr_offset = 0x400
 spared_blocks = 4
 unremovable_modules = ("ROMP", "BUP")
-unremovable_modules_me11 = ("rbe", "kernel", "syslib", "bup")
+unremovable_modules_gen3 = ("rbe", "kernel", "syslib", "bup")
 unremovable_partitions = ("FTPR",)
 
 pubkeys_md5 = {
+    "8431285d43b0f2a2f520d7cab3d34178": ("ME",  ("2.0.x.x", "2.1.x.x",
+                                                 "2.2.x.x")),
+    "4c00dd06c28119b5c1e5bb8eb6f30596": ("ME",  ("2.5.x.x", "2.6.x.x")),
+    "9c24077a7f7490967855e9c4c16c6b9e": ("ME",  ("3.x.x.x",)),
+    "bf41464be736f5520d80c67f6789020e": ("ME",  ("4.x.x.x",)),
+    "5c7169b7e7065323fb7b3b5657b4d57a": ("ME",  ("5.x.x.x",)),
     "763e59ebe235e45a197a5b1a378dfa04": ("ME",  ("6.x.x.x",)),
     "3a98c847d609c253e145bd36512629cb": ("ME",  ("6.0.50.x",)),
     "0903fc25b0f6bed8c4ed724aca02124c": ("ME",  ("7.x.x.x", "8.x.x.x")),
@@ -384,7 +390,7 @@ def check_and_remove_modules(f, me_end, offset, min_offset,
     return -1, offset
 
 
-def check_and_remove_modules_me11(f, me_end, partition_offset,
+def check_and_remove_modules_gen3(f, me_end, partition_offset,
                                   partition_length, min_offset, relocate,
                                   keep_modules):
 
@@ -431,7 +437,7 @@ def check_and_remove_modules_me11(f, me_end, partition_offset,
                 print("NOT removed, partition manif.")
             elif name.endswith(".met"):
                 print("NOT removed, module metadata")
-            elif any(name.startswith(m) for m in unremovable_modules_me11):
+            elif any(name.startswith(m) for m in unremovable_modules_gen3):
                 print("NOT removed, essential")
             else:
                 removed = True
@@ -449,10 +455,11 @@ def check_and_remove_modules_me11(f, me_end, partition_offset,
     return end_data, partition_offset
 
 
-def check_mn2_tag(f, offset):
+def check_mn2_tag(f, offset, gen):
     f.seek(offset + 0x1c)
     tag = f.read(4)
-    if tag != b"$MN2":
+    expected_tag = b"$MAN" if gen == 1 else b"$MN2"
+    if tag != expected_tag:
         sys.exit("Wrong FTPR manifest tag ({}), this image may be corrupted"
                  .format(tag))
 
@@ -536,11 +543,14 @@ if __name__ == "__main__":
         sys.exit("Relocation is not yet supported with custom whitelist or "
                  "blacklist")
 
-    f = open(args.file, "rb" if args.check or args.output else "r+b")
-    f.seek(0x10)
-    magic = f.read(4)
+    gen = None
 
-    if magic == b"$FPT":
+    f = open(args.file, "rb" if args.check or args.output else "r+b")
+    magic0 = f.read(4)
+    f.seek(0x10)
+    magic10 = f.read(4)
+
+    if b"$FPT" in {magic0, magic10}:
         print("ME/TXE image detected")
 
         if args.descriptor or args.extract_descriptor or args.extract_me or \
@@ -552,17 +562,20 @@ if __name__ == "__main__":
         me_end = f.tell()
         mef = RegionFile(f, me_start, me_end)
 
-    elif magic == b"\x5a\xa5\xf0\x0f":
+    elif b"\x5a\xa5\xf0\x0f" in {magic0, magic10}:
         print("Full image detected")
 
-        if args.truncate and not args.extract_me:
-            sys.exit("-t requires a separated ME/TXE image (or --extract-me)")
-
-        f.seek(0x14)
-        flmap0, flmap1 = unpack("<II", f.read(8))
+        f.seek(0x4 if magic0 == b"\x5a\xa5\xf0\x0f" else 0x14)
+        flmap0, flmap1, flmap2 = unpack("<III", f.read(0xc))
         frba = flmap0 >> 12 & 0xff0
         fmba = (flmap1 & 0xff) << 4
-        fpsba = flmap1 >> 12 & 0xff0
+
+        # Generation 1
+        fisba = flmap1 >> 12 & 0xff0
+        fmsba = (flmap2 & 0xff) << 4
+
+        # Generation 2-3
+        fpsba = fisba
 
         f.seek(frba)
         flreg = unpack("<III", f.read(12))
@@ -572,119 +585,162 @@ if __name__ == "__main__":
         me_start, me_end = flreg_to_start_end(flreg[2])
 
         if me_start >= me_end:
-            sys.exit("The ME/TXE region in this image has been disabled")
+            print("The ME region in this image has already been disabled")
+        else:
+            mef = RegionFile(f, me_start, me_end)
 
-        mef = RegionFile(f, me_start, me_end)
+        if magic0 == b"\x5a\xa5\xf0\x0f":
+            gen = 1
 
-        mef.seek(0x10)
-        if mef.read(4) != b"$FPT":
-            sys.exit("The ME/TXE region is corrupted or missing")
-
-        print("The ME/TXE region goes from {:#x} to {:#x}"
-              .format(me_start, me_end))
     else:
         sys.exit("Unknown image")
 
-    end_addr = me_end
+    if me_start < me_end:
+        mef.seek(0)
+        if mef.read(4) == b"$FPT":
+            fpt_offset = 0
+        else:
+            mef.seek(0x10)
+            if mef.read(4) == b"$FPT":
+                fpt_offset = 0x10
+            else:
+                if me_start > 0:
+                    sys.exit("The ME/TXE region is valid but the firmware is "
+                             "corrupted or missing")
+                else:
+                    sys.exit("Unknown error")
 
-    print("Found FPT header at {:#x}".format(mef.region_start + 0x10))
+    if gen == 1:
+        end_addr = 0
+    else:
+        end_addr = me_end
 
-    mef.seek(0x14)
-    entries = unpack("<I", mef.read(4))[0]
-    print("Found {} partition(s)".format(entries))
+    if me_start < me_end:
+        print("Found FPT header at {:#x}".format(mef.region_start + fpt_offset))
 
-    mef.seek(0x30)
-    partitions = mef.read(entries * 0x20)
+        mef.seek(fpt_offset + 0x4)
+        entries = unpack("<I", mef.read(4))[0]
+        print("Found {} partition(s)".format(entries))
 
-    ftpr_header = b""
+        mef.seek(fpt_offset + 0x20)
+        partitions = mef.read(entries * 0x20)
 
-    for i in range(entries):
-        if partitions[i * 0x20:(i * 0x20) + 4] == b"FTPR":
-            ftpr_header = partitions[i * 0x20:(i + 1) * 0x20]
-            break
+        ftpr_header = b""
 
-    if ftpr_header == b"":
-        sys.exit("FTPR header not found, this image doesn't seem to be valid")
-
-    ftpr_offset, ftpr_length = unpack("<II", ftpr_header[0x08:0x10])
-    print("Found FTPR header: FTPR partition spans from {:#x} to {:#x}"
-          .format(ftpr_offset, ftpr_offset + ftpr_length))
-
-    mef.seek(ftpr_offset)
-    if mef.read(4) == b"$CPD":
-        me11 = True
-        num_entries = unpack("<I", mef.read(4))[0]
-
-        mef.seek(ftpr_offset + 0x10)
-        ftpr_mn2_offset = -1
-
-        for i in range(0, num_entries):
-            data = mef.read(0x18)
-            name = data[0x0:0xc].rstrip(b"\x00").decode("ascii")
-            offset = unpack("<I", data[0xc:0xf] + b"\x00")[0]
-
-            if name == "FTPR.man":
-                ftpr_mn2_offset = offset
+        for i in range(entries):
+            if partitions[i * 0x20:(i * 0x20) + 4] in {b"CODE", b"FTPR"}:
+                ftpr_header = partitions[i * 0x20:(i + 1) * 0x20]
                 break
 
-        if ftpr_mn2_offset >= 0:
-            check_mn2_tag(mef, ftpr_offset + ftpr_mn2_offset)
-            print("Found FTPR manifest at {:#x}"
-                  .format(ftpr_offset + ftpr_mn2_offset))
+        if ftpr_header == b"":
+            sys.exit("FTPR header not found, this image doesn't seem to be "
+                     "valid")
+
+        if ftpr_header[0x0:0x4] == b"CODE":
+            gen = 1
+
+        ftpr_offset, ftpr_length = unpack("<II", ftpr_header[0x08:0x10])
+        print("Found FTPR header: FTPR partition spans from {:#x} to {:#x}"
+              .format(ftpr_offset, ftpr_offset + ftpr_length))
+
+        mef.seek(ftpr_offset)
+        if mef.read(4) == b"$CPD":
+            gen = 3
+            num_entries = unpack("<I", mef.read(4))[0]
+
+            mef.seek(ftpr_offset + 0x10)
+            ftpr_mn2_offset = -1
+
+            for i in range(0, num_entries):
+                data = mef.read(0x18)
+                name = data[0x0:0xc].rstrip(b"\x00").decode("ascii")
+                offset = unpack("<I", data[0xc:0xf] + b"\x00")[0]
+
+                if name == "FTPR.man":
+                    ftpr_mn2_offset = offset
+                    break
+
+            if ftpr_mn2_offset >= 0:
+                check_mn2_tag(mef, ftpr_offset + ftpr_mn2_offset, gen)
+                print("Found FTPR manifest at {:#x}"
+                      .format(ftpr_offset + ftpr_mn2_offset))
+            else:
+                sys.exit("Can't find the manifest of the FTPR partition")
+
         else:
-            sys.exit("Can't find the manifest of the FTPR partition")
+            check_mn2_tag(mef, ftpr_offset, gen)
+            ftpr_mn2_offset = 0
+            if not gen:
+                gen = 2
 
-    else:
-        check_mn2_tag(mef, ftpr_offset)
-        me11 = False
-        ftpr_mn2_offset = 0
+        mef.seek(ftpr_offset + ftpr_mn2_offset + 0x24)
+        version = unpack("<HHHH", mef.read(0x08))
+        print("ME/TXE firmware version {} (generation {})"
+              .format('.'.join(str(i) for i in version), gen))
 
-    mef.seek(ftpr_offset + ftpr_mn2_offset + 0x24)
-    version = unpack("<HHHH", mef.read(0x08))
-    print("ME/TXE firmware version {}"
-          .format('.'.join(str(i) for i in version)))
+        mef.seek(ftpr_offset + ftpr_mn2_offset + 0x80)
+        pubkey_md5 = hashlib.md5(mef.read(0x104)).hexdigest()
 
-    mef.seek(ftpr_offset + ftpr_mn2_offset + 0x80)
-    pubkey_md5 = hashlib.md5(mef.read(0x104)).hexdigest()
-
-    if pubkey_md5 in pubkeys_md5:
-        variant, pubkey_versions = pubkeys_md5[pubkey_md5]
-        print("Public key match: Intel {}, firmware versions {}"
-              .format(variant, ", ".join(pubkey_versions)))
-    else:
-        if version[0] >= 6:
-            variant = "ME"
+        if pubkey_md5 in pubkeys_md5:
+            variant, pubkey_versions = pubkeys_md5[pubkey_md5]
+            print("Public key match: Intel {}, firmware versions {}"
+                  .format(variant, ", ".join(pubkey_versions)))
         else:
-            variant = "TXE"
-        print("WARNING Unknown public key {}\n"
-              "        Assuming Intel {}\n"
-              "        Please report this warning to the project's maintainer!"
-              .format(pubkey_md5, variant))
+            if version[0] >= 6:
+                variant = "ME"
+            else:
+                variant = "TXE"
+            print("WARNING Unknown public key {}\n"
+                  "        Assuming Intel {}\n"
+                  "        Please report this warning to the project's "
+                  "maintainer!"
+                  .format(pubkey_md5, variant))
 
     if not args.check and args.output:
         f.close()
         shutil.copy(args.file, args.output)
         f = open(args.output, "r+b")
 
-    mef = RegionFile(f, me_start, me_end)
+    if me_start < me_end:
+        mef = RegionFile(f, me_start, me_end)
 
     if me_start > 0:
         fdf = RegionFile(f, fd_start, fd_end)
 
-        if me11:
-            fdf.seek(fpsba)
-            pchstrp0 = unpack("<I", fdf.read(4))[0]
-            print("The HAP bit is " +
-                  ("SET" if pchstrp0 & 1 << 16 else "NOT SET"))
-        else:
+        if gen == 1:
+            for (ba, name) in ((fisba, "ICHSTRP0"), (fmsba, "MCHSTRP0")):
+                fdf.seek(ba)
+                strp = unpack("<I", fdf.read(4))[0]
+                print("The meDisable bit in " + name + " is ", end="")
+                if strp & 1:
+                    print("SET")
+                else:
+                    print("NOT SET, setting it now...")
+                    fdf.write_to(ba, pack("<I", strp | 1))
+        elif gen == 2:
             fdf.seek(fpsba + 0x28)
             pchstrp10 = unpack("<I", fdf.read(4))[0]
             print("The AltMeDisable bit is " +
                   ("SET" if pchstrp10 & 1 << 7 else "NOT SET"))
+        else:
+            fdf.seek(fpsba)
+            pchstrp0 = unpack("<I", fdf.read(4))[0]
+            print("The HAP bit is " +
+                  ("SET" if pchstrp0 & 1 << 16 else "NOT SET"))
+
+        # Generation 1: wipe everything and disable the ME region
+        if gen == 1 and me_start < me_end:
+            print("Disabling the ME region...")
+            f.seek(frba + 0x8)
+            f.write(pack("<I", 0x1fff))
+
+            print("Wiping the ME region...")
+            mef = RegionFile(f, me_start, me_end)
+            mef.fill_all("\xff")
 
     # ME 6 Ignition: wipe everything
     me6_ignition = False
-    if not args.check and not args.soft_disable_only and \
+    if gen == 2 and not args.check and not args.soft_disable_only and \
        variant == "ME" and version[0] == 6:
         mef.seek(ftpr_offset + 0x20)
         num_modules = unpack("<I", mef.read(4))[0]
@@ -696,7 +752,7 @@ if __name__ == "__main__":
             mef.fill_all(b"\xff")
             me6_ignition = True
 
-    if not args.check:
+    if gen != 1 and not args.check:
         if not args.soft_disable_only and not me6_ignition:
             print("Reading partitions list...")
             unremovable_part_fpt = b""
@@ -769,7 +825,7 @@ if __name__ == "__main__":
                 flags &= ~(0x00000001)
                 mef.write_to(0x24, pack("<I", flags))
 
-            if me11:
+            if gen == 3:
                 mef.seek(0x10)
                 header = bytearray(mef.read(0x20))
                 header[0x0b] = 0x00
@@ -787,9 +843,9 @@ if __name__ == "__main__":
             mef.write_to(0x1b, pack("B", checksum))
 
             print("Reading FTPR modules list...")
-            if me11:
+            if gen == 3:
                 end_addr, ftpr_offset = \
-                    check_and_remove_modules_me11(mef, me_end,
+                    check_and_remove_modules_gen3(mef, me_end,
                                                   ftpr_offset, ftpr_length,
                                                   min_ftpr_offset,
                                                   args.relocate,
@@ -817,7 +873,7 @@ if __name__ == "__main__":
                     f.truncate(end_addr)
 
         if args.soft_disable or args.soft_disable_only:
-            if me11:
+            if gen == 3:
                 print("Setting the HAP bit in PCHSTRP0 to disable Intel ME...")
                 pchstrp0 |= (1 << 16)
                 fdf.write_to(fpsba, pack("<I", pchstrp0))
@@ -829,7 +885,7 @@ if __name__ == "__main__":
 
     if args.descriptor:
         print("Removing ME/TXE R/W access to the other flash regions...")
-        if me11:
+        if gen == 3:
             flmstr2 = 0x00400500
         else:
             fdf.seek(fmba + 0x4)
@@ -853,15 +909,20 @@ if __name__ == "__main__":
                               me_start + end_addr, bios_end - 1))
 
                 flreg1 = start_end_to_flreg(me_start + end_addr, bios_end)
-                flreg2 = start_end_to_flreg(me_start, me_start + end_addr)
+                if gen != 1:
+                    flreg2 = start_end_to_flreg(me_start, me_start + end_addr)
 
                 fdf_copy.seek(frba + 0x4)
-                fdf_copy.write(pack("<II", flreg1, flreg2))
+                fdf_copy.write(pack("<I", flreg1))
+                if gen != 1:
+                    fdf_copy.write(pack("<I", flreg2))
             else:
-                print("\nWARNING:\n The start address of the BIOS region "
-                      "isn't equal to the end address of the ME\n region: if "
-                      "you want to recover the space from the ME region you "
-                      "have to\n manually modify the descriptor.\n")
+                print("\nWARNING:\n"
+                      "The start address of the BIOS region (0x{:08x}) isn't "
+                      "equal to the end address\nof the ME region (0x{:08x}): "
+                      "if you want to recover the space from the ME \nregion "
+                      "you have to manually modify the descriptor.\n"
+                      .format(bios_start, me_end))
         else:
             print("Extracting the descriptor to \"{}\"..."
                   .format(args.extract_descriptor))
@@ -869,26 +930,27 @@ if __name__ == "__main__":
 
         fdf_copy.close()
 
-    if args.extract_me:
-        if args.truncate:
-            print("Extracting and truncating the ME image to \"{}\"..."
-                  .format(args.extract_me))
-            mef_copy = mef.save(args.extract_me, end_addr)
-        else:
-            print("Extracting the ME image to \"{}\"..."
-                  .format(args.extract_me))
-            mef_copy = mef.save(args.extract_me, me_end - me_start)
+    if gen != 1:
+        if args.extract_me:
+            if args.truncate:
+                print("Extracting and truncating the ME image to \"{}\"..."
+                      .format(args.extract_me))
+                mef_copy = mef.save(args.extract_me, end_addr)
+            else:
+                print("Extracting the ME image to \"{}\"..."
+                      .format(args.extract_me))
+                mef_copy = mef.save(args.extract_me, me_end - me_start)
+
+            if not me6_ignition:
+                print("Checking the FTPR RSA signature of the extracted ME "
+                      "image... ", end="")
+                print_check_partition_signature(mef_copy,
+                                                ftpr_offset + ftpr_mn2_offset)
+            mef_copy.close()
 
         if not me6_ignition:
-            print("Checking the FTPR RSA signature of the extracted ME "
-                  "image... ", end="")
-            print_check_partition_signature(mef_copy,
-                                            ftpr_offset + ftpr_mn2_offset)
-        mef_copy.close()
-
-    if not me6_ignition:
-        print("Checking the FTPR RSA signature... ", end="")
-        print_check_partition_signature(mef, ftpr_offset + ftpr_mn2_offset)
+            print("Checking the FTPR RSA signature... ", end="")
+            print_check_partition_signature(mef, ftpr_offset + ftpr_mn2_offset)
 
     f.close()
 

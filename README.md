@@ -56,16 +56,19 @@ SPI programmer.
 
 ## Results
 
-For pre-Skylake firmware (ME version < 11) this tool removes almost everything,
-leaving only the two fundamental modules needed for the correct boot, `ROMP` and
-`BUP`. The code size is reduced from 1.5 MB (non-AMT firmware) or 5 MB (AMT
-firmware) to ~90 kB of compressed code.
+For generation 1 (before Nehalem, ME version <= 5) this tool removes the whole
+ME firmware and disables it completely.
 
-Starting from Skylake (ME version >= 11) the ME subsystem and the firmware
-structure have changed, requiring substantial changes in _me\_cleaner_.
-The fundamental modules required for the correct boot are now four (`rbe`, 
-`kernel`, `syslib` and `bup`) and the minimum code size is ~300 kB of compressed
-code (from the 2 MB of the non-AMT firmware and the 7 MB of the AMT one).
+For generation 2 (Nehalem-Broadwell, ME version between 6 and 10) this tool
+removes almost everything, leaving only the two fundamental modules needed for
+the correct boot, `ROMP` and `BUP`. The firmware size is reduced from 1.5 MB
+(non-AMT firmware) or 5 MB (AMT firmware) to ~90 kB.
+
+For generation 3 (from Skylake onwards, ME version >= 11) the ME subsystem and
+the firmware structure have changed, requiring substantial changes
+in _me\_cleaner_. The fundamental modules required for the correct boot are now
+four (`rbe`,  `kernel`, `syslib` and `bup`) and the minimum firmware size is
+~300 kB (from the 2 MB of the non-AMT firmware and the 7 MB of the AMT one).
 
 On some boards the OEM firmware fails to boot without a valid Intel ME firmware;
 in the other cases the system should work with minor inconveniences (like longer
