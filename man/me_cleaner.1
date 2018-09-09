@@ -1,7 +1,7 @@
-.TH me_cleaner 1 "MARCH 2018"
+.TH me_cleaner 1 "JUNE 2018"
 .SH me_cleaner
 .PP
-me_cleaner \-  Tool for partial deblobbing of Intel ME/TXE firmware images 
+me_cleaner \-  Tool for partial deblobbing of Intel ME/TXE firmware images
 .SH SYNOPSIS
 .PP
 \fB\fCme_cleaner.py\fR [\-h] [\-v] [\-O output_file] [\-S | \-s] [\-r] [\-k]
@@ -109,8 +109,8 @@ c c c c
 c c c c
 .
 PCH	CPU	ME	SKU
-Ibex Peak *	Nehalem/Westmere	6.0	Ignition
-Ibex Peak *	Nehalem/Westmere	6.x	1.5/5 MB
+Ibex Peak	Nehalem/Westmere	6.0	Ignition
+Ibex Peak	Nehalem/Westmere	6.x	1.5/5 MB
 Cougar Point	Sandy Bridge	7.x	1.5/5 MB
 Panther Point	Ivy Bridge	8.x	1.5/5 MB
 Lynx/Wildcat Point	Haswell/Broadwell	9.x	1.5/5 MB
@@ -126,8 +126,6 @@ c c c
 SoC	TXE	SKU
 Braswell/Cherry Trail	2.x	1.375 MB
 .TE
-.PP
-* Not working on coreboot
 .PP
 All the reports are available on the project's GitHub page \[la]https://github.com/corna/me_cleaner/issues/3\[ra]\&.
 .SH EXAMPLES
@@ -155,5 +153,5 @@ Bugs should be reported on the project's GitHub page \[la]https://github.com/cor
 Nicola Corna \[la]nicola@corna.info\[ra]
 .SH SEE ALSO
 .PP
-.BR flashrom (8), 
+.BR flashrom (8),
 me_cleaner's Wiki \[la]https://github.com/corna/me_cleaner/wiki\[ra]

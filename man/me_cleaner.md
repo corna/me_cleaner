@@ -1,7 +1,7 @@
 [//]: # (Use md2man to generate the man page from this Markdown)
 [//]: # (https://github.com/sunaku/md2man)
 
-me_cleaner 1 "MARCH 2018"
+me_cleaner 1 "JUNE 2018"
 =======================================
 
 me\_cleaner
@@ -112,8 +112,8 @@ Currently `me_cleaner` has been tested on the following platforms:
 
 | PCH               | CPU               | ME   | SKU      |
 |:-----------------:|:-----------------:|:----:|:--------:|
-| Ibex Peak *       | Nehalem/Westmere  | 6.0  | Ignition |
-| Ibex Peak *       | Nehalem/Westmere  | 6.x  | 1.5/5 MB |
+| Ibex Peak         | Nehalem/Westmere  | 6.0  | Ignition |
+| Ibex Peak         | Nehalem/Westmere  | 6.x  | 1.5/5 MB |
 | Cougar Point      | Sandy Bridge      | 7.x  | 1.5/5 MB |
 | Panther Point     | Ivy Bridge        | 8.x  | 1.5/5 MB |
 | Lynx/Wildcat Point| Haswell/Broadwell | 9.x  | 1.5/5 MB |
@@ -124,8 +124,6 @@ Currently `me_cleaner` has been tested on the following platforms:
 | SoC                   | TXE | SKU      |
 |:---------------------:|:---:|:--------:|
 | Braswell/Cherry Trail | 2.x | 1.375 MB |
-
-\* Not working on coreboot
 
 All the reports are available on the [project's GitHub page](
 https://github.com/corna/me_cleaner/issues/3).
