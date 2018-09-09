@@ -714,6 +714,8 @@ if __name__ == "__main__":
                 print("The meDisable bit in " + name + " is ", end="")
                 if strp & 1:
                     print("SET")
+                elif args.check:
+                    print("NOT SET")
                 else:
                     print("NOT SET, setting it now...")
                     fdf.write_to(ba, pack("<I", strp | 1))
@@ -729,7 +731,7 @@ if __name__ == "__main__":
                   ("SET" if pchstrp0 & 1 << 16 else "NOT SET"))
 
         # Generation 1: wipe everything and disable the ME region
-        if gen == 1 and me_start < me_end:
+        if gen == 1 and me_start < me_end and not args.check:
             print("Disabling the ME region...")
             f.seek(frba + 0x8)
             f.write(pack("<I", 0x1fff))
