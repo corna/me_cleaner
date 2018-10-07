@@ -1,13 +1,13 @@
 [//]: # (Use md2man to generate the man page from this Markdown)
 [//]: # (https://github.com/sunaku/md2man)
 
-me_cleaner 1 "JUNE 2018"
+me_cleaner 1 "OCTOBER 2018"
 =======================================
 
 me\_cleaner
 ----
 
-me\_cleaner -  Tool for partial deblobbing of Intel ME/TXE firmware images 
+me\_cleaner -  Tool for partial deblobbing of Intel ME/TXE firmware images
 
 SYNOPSIS
 --------
@@ -27,11 +27,14 @@ initialization
 
 Using both the modes seems to be the most reliable way on many platforms.
 
+When used on ME firmware older than Nehalem (versions 1.x-5.x), Intel ME is
+fully disabled and its firmware is removed completely.
+
 The resulting modified firmware needs to be flashed (in most of the cases) with
 an external programmer, often a dedicated SPI programmer or a Linux board with
 a SPI master interface.
 
-`me_cleaner` works at least from Nehalem to Coffee Lake (for Intel ME) and on
+`me_cleaner` works at least up to Coffee Lake (for Intel ME) and on
 Braswell/Cherry Trail (for Intel TXE), but may work as well on newer or
 different architectures.
 
@@ -110,16 +113,17 @@ SUPPORTED PLATFORMS
 
 Currently `me_cleaner` has been tested on the following platforms:
 
-| PCH               | CPU               | ME   | SKU      |
-|:-----------------:|:-----------------:|:----:|:--------:|
-| Ibex Peak         | Nehalem/Westmere  | 6.0  | Ignition |
-| Ibex Peak         | Nehalem/Westmere  | 6.x  | 1.5/5 MB |
-| Cougar Point      | Sandy Bridge      | 7.x  | 1.5/5 MB |
-| Panther Point     | Ivy Bridge        | 8.x  | 1.5/5 MB |
-| Lynx/Wildcat Point| Haswell/Broadwell | 9.x  | 1.5/5 MB |
-| Wildcat  Point LP | Broadwell Mobile	| 10.0 | 1.5/5 MB |
-| Sunrise Point     | Skylake/Kabylake	| 11.x | CON/COR  |
-| Union Point       | Kabylake	        | 11.x | CON/COR  |
+| PCH               | CPU               | ME      | SKU      |
+|:-----------------:|:-----------------:|:-------:|:--------:|
+|                   |                   | 1.x-5.x |          |
+| Ibex Peak         | Nehalem/Westmere  | 6.0     | Ignition |
+| Ibex Peak         | Nehalem/Westmere  | 6.x     | 1.5/5 MB |
+| Cougar Point      | Sandy Bridge      | 7.x     | 1.5/5 MB |
+| Panther Point     | Ivy Bridge        | 8.x     | 1.5/5 MB |
+| Lynx/Wildcat Point| Haswell/Broadwell | 9.x     | 1.5/5 MB |
+| Wildcat  Point LP | Broadwell Mobile  | 10.0    | 1.5/5 MB |
+| Sunrise Point     | Skylake/Kabylake  | 11.x    | CON/COR  |
+| Union Point       | Kabylake          | 11.x    | CON/COR  |
 
 | SoC                   | TXE | SKU      |
 |:---------------------:|:---:|:--------:|
