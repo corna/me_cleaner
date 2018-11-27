@@ -8,10 +8,10 @@ the final purpose of reducing its ability to interact with the system.
 Intel ME is a co-processor integrated in all post-2006 Intel boards, which is
 the base hardware for many Intel features like Intel AMT, Intel Boot Guard,
 Intel PAVP and many others. To provide such features, it requires full access to
-the system, including memory (through DMA) and network access (transparent to
+the system, including memory (through DMA) and network access (invisible to
 the user).
 
-Unlike many other firmware components, the Intel ME firmware can't be neither
+Unlike many other firmware components, the Intel ME firmware can be neither
 disabled nor reimplemented, as it is tightly integrated in the boot process and
 it is signed.
 
