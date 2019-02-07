@@ -11,8 +11,8 @@ Intel PAVP and many others. To provide such features, it requires full access to
 the system, including memory (through DMA) and network access (transparent to
 the user).
 
-Unlike many other firmware components, the Intel ME firmware can't be neither
-disabled nor reimplemented, as it is tightly integrated in the boot process and
+Unlike many other firmware components, the Intel ME firmware can't be disabled 
+as it is tightly integrated in the boot process, nor can it be reimplemented as
 it is signed.
 
 This poses an issue both to the free firmware implementations like [coreboot](
