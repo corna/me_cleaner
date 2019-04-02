@@ -738,7 +738,7 @@ if __name__ == "__main__":
 
             print("Wiping the ME region...")
             mef = RegionFile(f, me_start, me_end)
-            mef.fill_all("\xff")
+            mef.fill_all(b"\xff")
 
     # ME 6 Ignition: wipe everything
     me6_ignition = False
