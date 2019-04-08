@@ -22,6 +22,7 @@ import hashlib
 import itertools
 import shutil
 import sys
+import re
 from struct import pack, unpack
 
 
@@ -63,6 +64,13 @@ class RegionFile:
         self.f = f
         self.region_start = region_start
         self.region_end = region_end
+
+    def readall(self):
+        currentpos = self.f.tell()
+        self.f.seek(self.region_start)
+        toret = self.f.read(self.region_end - self.region_start)
+        self.f.seek(currentpos)
+        return toret
 
     def read(self, n):
         if f.tell() + n <= self.region_end:
@@ -596,19 +604,16 @@ if __name__ == "__main__":
         sys.exit("Unknown image")
 
     if me_start < me_end:
-        mef.seek(0)
-        if mef.read(4) == b"$FPT":
-            fpt_offset = 0
-        else:
-            mef.seek(0x10)
-            if mef.read(4) == b"$FPT":
-                fpt_offset = 0x10
-            else:
-                if me_start > 0:
-                    sys.exit("The ME/TXE region is valid but the firmware is "
-                             "corrupted or missing")
-                else:
-                    sys.exit("Unknown error")
+        medata = mef.readall()
+        fpt_matches = list((re.compile(br'\x24\x46\x50\x54.\x00\x00\x00', re.DOTALL)).finditer(medata))
+        if (len(fpt_matches) == 0):
+            sys.exit("$FPT not found")
+
+        if (len(fpt_matches) > 1):
+            sys.exit("more than one $FPT found")
+
+        for fpt_match in fpt_matches:
+            fpt_offset = fpt_match.span()[0]
 
     if gen == 1:
         end_addr = 0
