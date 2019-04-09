@@ -45,6 +45,7 @@ pubkeys_md5 = {
     "2011ae6df87c40fba09e3f20459b1ce0": ("ME",  ("9.0.x.x", "9.1.x.x")),
     "e8427c5691cf8b56bc5cdd82746957ed": ("ME",  ("9.5.x.x", "10.x.x.x")),
     "986a78e481f185f7d54e4af06eb413f6": ("ME",  ("11.x.x.x",)),
+    "3efc26920b4bee901b624771c742887b": ("ME",  ("12.x.x.x",)),
     "bda0b6bb8ca0bf0cac55ac4c4d55e0f2": ("TXE", ("1.x.x.x",)),
     "b726a2ab9cd59d4e62fe2bead7cf6997": ("TXE", ("1.x.x.x",)),
     "0633d7f951a3e7968ae7460861be9cfb": ("TXE", ("2.x.x.x",)),
