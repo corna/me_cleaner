@@ -22,6 +22,7 @@ import hashlib
 import itertools
 import shutil
 import sys
+import re
 from struct import pack, unpack
 
 
@@ -44,6 +45,7 @@ pubkeys_md5 = {
     "2011ae6df87c40fba09e3f20459b1ce0": ("ME",  ("9.0.x.x", "9.1.x.x")),
     "e8427c5691cf8b56bc5cdd82746957ed": ("ME",  ("9.5.x.x", "10.x.x.x")),
     "986a78e481f185f7d54e4af06eb413f6": ("ME",  ("11.x.x.x",)),
+    "3efc26920b4bee901b624771c742887b": ("ME",  ("12.x.x.x",)),
     "bda0b6bb8ca0bf0cac55ac4c4d55e0f2": ("TXE", ("1.x.x.x",)),
     "b726a2ab9cd59d4e62fe2bead7cf6997": ("TXE", ("1.x.x.x",)),
     "0633d7f951a3e7968ae7460861be9cfb": ("TXE", ("2.x.x.x",)),
@@ -63,6 +65,13 @@ class RegionFile:
         self.f = f
         self.region_start = region_start
         self.region_end = region_end
+
+    def readall(self):
+        currentpos = self.f.tell()
+        self.f.seek(self.region_start)
+        toret = self.f.read(self.region_end - self.region_start)
+        self.f.seek(currentpos)
+        return toret
 
     def read(self, n):
         if f.tell() + n <= self.region_end:
@@ -596,19 +605,16 @@ if __name__ == "__main__":
         sys.exit("Unknown image")
 
     if me_start < me_end:
-        mef.seek(0)
-        if mef.read(4) == b"$FPT":
-            fpt_offset = 0
-        else:
-            mef.seek(0x10)
-            if mef.read(4) == b"$FPT":
-                fpt_offset = 0x10
-            else:
-                if me_start > 0:
-                    sys.exit("The ME/TXE region is valid but the firmware is "
-                             "corrupted or missing")
-                else:
-                    sys.exit("Unknown error")
+        medata = mef.readall()
+        fpt_matches = list((re.compile(br'\x24\x46\x50\x54.\x00\x00\x00', re.DOTALL)).finditer(medata))
+        if (len(fpt_matches) == 0):
+            sys.exit("$FPT not found")
+
+        if (len(fpt_matches) > 1):
+            sys.exit("more than one $FPT found")
+
+        for fpt_match in fpt_matches:
+            fpt_offset = fpt_match.span()[0]
 
     if gen == 1:
         end_addr = 0
