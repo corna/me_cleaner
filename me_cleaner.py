@@ -22,6 +22,7 @@ import hashlib
 import itertools
 import shutil
 import sys
+import re
 from struct import pack, unpack
 
 
@@ -44,6 +45,7 @@ pubkeys_md5 = {
     "2011ae6df87c40fba09e3f20459b1ce0": ("ME",  ("9.0.x.x", "9.1.x.x")),
     "e8427c5691cf8b56bc5cdd82746957ed": ("ME",  ("9.5.x.x", "10.x.x.x")),
     "986a78e481f185f7d54e4af06eb413f6": ("ME",  ("11.x.x.x",)),
+    "3efc26920b4bee901b624771c742887b": ("ME",  ("12.x.x.x",)),
     "bda0b6bb8ca0bf0cac55ac4c4d55e0f2": ("TXE", ("1.x.x.x",)),
     "b726a2ab9cd59d4e62fe2bead7cf6997": ("TXE", ("1.x.x.x",)),
     "0633d7f951a3e7968ae7460861be9cfb": ("TXE", ("2.x.x.x",)),
@@ -63,6 +65,13 @@ class RegionFile:
         self.f = f
         self.region_start = region_start
         self.region_end = region_end
+
+    def readall(self):
+        currentpos = self.f.tell()
+        self.f.seek(self.region_start)
+        toret = self.f.read(self.region_end - self.region_start)
+        self.f.seek(currentpos)
+        return toret
 
     def read(self, n):
         if f.tell() + n <= self.region_end:
@@ -596,19 +605,16 @@ if __name__ == "__main__":
         sys.exit("Unknown image")
 
     if me_start < me_end:
-        mef.seek(0)
-        if mef.read(4) == b"$FPT":
-            fpt_offset = 0
-        else:
-            mef.seek(0x10)
-            if mef.read(4) == b"$FPT":
-                fpt_offset = 0x10
-            else:
-                if me_start > 0:
-                    sys.exit("The ME/TXE region is valid but the firmware is "
-                             "corrupted or missing")
-                else:
-                    sys.exit("Unknown error")
+        medata = mef.readall()
+        fpt_matches = list((re.compile(br'\x24\x46\x50\x54.\x00\x00\x00', re.DOTALL)).finditer(medata))
+        if (len(fpt_matches) == 0):
+            sys.exit("$FPT not found")
+
+        if (len(fpt_matches) > 1):
+            sys.exit("more than one $FPT found")
+
+        for fpt_match in fpt_matches:
+            fpt_offset = fpt_match.span()[0]
 
     if gen == 1:
         end_addr = 0
@@ -633,13 +639,21 @@ if __name__ == "__main__":
                 break
 
         if ftpr_header == b"":
-            sys.exit("FTPR header not found, this image doesn't seem to be "
-                     "valid")
+            # We might be dealing with IFWI firmware, look for $CPD with FPTR
+            ftpr_matches = list((re.compile(br'\x24\x43\x50\x44........\x46\x54\x50\x52', re.DOTALL)).finditer(medata))
 
-        if ftpr_header[0x0:0x4] == b"CODE":
-            gen = 1
+            if (len(ftpr_matches) == 1):
+                ftpr_offset = ftpr_matches[0].span()[0]
+                ftpr_length = 0 # As long as we only do soft-disable on IFWI, should be okay
+            else:
+                sys.exit("FTPR header not found, this image doesn't seem to be "
+                        "valid")
+        else:
+            if ftpr_header[0x0:0x4] == b"CODE":
+                gen = 1
 
-        ftpr_offset, ftpr_length = unpack("<II", ftpr_header[0x08:0x10])
+            ftpr_offset, ftpr_length = unpack("<II", ftpr_header[0x08:0x10])
+
         print("Found FTPR header: FTPR partition spans from {:#x} to {:#x}"
               .format(ftpr_offset, ftpr_offset + ftpr_length))
 
@@ -675,6 +689,10 @@ if __name__ == "__main__":
 
         mef.seek(ftpr_offset + ftpr_mn2_offset + 0x24)
         version = unpack("<HHHH", mef.read(0x08))
+
+        if version[0] == 12:
+            gen = 4
+
         print("ME/TXE firmware version {} (generation {})"
               .format('.'.join(str(i) for i in version), gen))
 
@@ -724,6 +742,11 @@ if __name__ == "__main__":
             pchstrp10 = unpack("<I", fdf.read(4))[0]
             print("The AltMeDisable bit is " +
                   ("SET" if pchstrp10 & 1 << 7 else "NOT SET"))
+        elif gen == 4:
+            fdf.seek(fpsba + 0x80)
+            pchstrp32 = unpack("<I", fdf.read(4))[0]
+            print("The HAP bit is " +
+                  ("SET" if pchstrp32 & 1 << 16 else "NOT SET"))
         else:
             fdf.seek(fpsba)
             pchstrp0 = unpack("<I", fdf.read(4))[0]
@@ -756,129 +779,136 @@ if __name__ == "__main__":
 
     if gen != 1 and not args.check:
         if not args.soft_disable_only and not me6_ignition:
-            print("Reading partitions list...")
-            unremovable_part_fpt = b""
-            extra_part_end = 0
-            whitelist = []
-            blacklist = []
+            if gen == 4:
+                print("Module removal is not currently supported on IFWI firmware.")
+            else:
+                print("Reading partitions list...")
+                unremovable_part_fpt = b""
+                extra_part_end = 0
+                whitelist = []
+                blacklist = []
 
-            whitelist += unremovable_partitions
+                whitelist += unremovable_partitions
 
-            if args.blacklist:
-                blacklist = args.blacklist.split(",")
-            elif args.whitelist:
-                whitelist += args.whitelist.split(",")
+                if args.blacklist:
+                    blacklist = args.blacklist.split(",")
+                elif args.whitelist:
+                    whitelist += args.whitelist.split(",")
 
-            for i in range(entries):
-                partition = partitions[i * 0x20:(i + 1) * 0x20]
-                flags = unpack("<I", partition[0x1c:0x20])[0]
+                for i in range(entries):
+                    partition = partitions[i * 0x20:(i + 1) * 0x20]
+                    flags = unpack("<I", partition[0x1c:0x20])[0]
 
-                try:
-                    part_name = \
-                        partition[0x0:0x4].rstrip(b"\x00").decode("ascii")
-                except UnicodeDecodeError:
-                    part_name = "????"
+                    try:
+                        part_name = \
+                            partition[0x0:0x4].rstrip(b"\x00").decode("ascii")
+                    except UnicodeDecodeError:
+                        part_name = "????"
 
-                part_start, part_length = unpack("<II", partition[0x08:0x10])
+                    part_start, part_length = unpack("<II", partition[0x08:0x10])
 
-                # ME 6: the last partition has 0xffffffff as size
-                if variant == "ME" and version[0] == 6 and \
-                   i == entries - 1 and part_length == 0xffffffff:
-                    part_length = me_end - me_start - part_start
+                    # ME 6: the last partition has 0xffffffff as size
+                    if variant == "ME" and version[0] == 6 and \
+                    i == entries - 1 and part_length == 0xffffffff:
+                        part_length = me_end - me_start - part_start
 
-                part_end = part_start + part_length
+                    part_end = part_start + part_length
 
-                if flags & 0x7f == 2:
-                    print(" {:<4} ({:^24}, 0x{:08x} total bytes): nothing to "
-                          "remove"
-                          .format(part_name, "NVRAM partition, no data",
-                                  part_length))
-                elif part_start == 0 or part_length == 0 or part_end > me_end:
-                    print(" {:<4} ({:^24}, 0x{:08x} total bytes): nothing to "
-                          "remove"
-                          .format(part_name, "no data here", part_length))
-                else:
-                    print(" {:<4} (0x{:08x} - 0x{:09x}, 0x{:08x} total bytes): "
-                          .format(part_name, part_start, part_end, part_length),
-                          end="")
-                    if part_name in whitelist or (blacklist and
-                       part_name not in blacklist):
-                        unremovable_part_fpt += partition
-                        if part_name != "FTPR":
-                            extra_part_end = max(extra_part_end, part_end)
-                        print("NOT removed")
+                    if flags & 0x7f == 2:
+                        print(" {:<4} ({:^24}, 0x{:08x} total bytes): nothing to "
+                            "remove"
+                            .format(part_name, "NVRAM partition, no data",
+                                    part_length))
+                    elif part_start == 0 or part_length == 0 or part_end > me_end:
+                        print(" {:<4} ({:^24}, 0x{:08x} total bytes): nothing to "
+                            "remove"
+                            .format(part_name, "no data here", part_length))
                     else:
-                        mef.fill_range(part_start, part_end, b"\xff")
-                        print("removed")
+                        print(" {:<4} (0x{:08x} - 0x{:09x}, 0x{:08x} total bytes): "
+                            .format(part_name, part_start, part_end, part_length),
+                            end="")
+                        if part_name in whitelist or (blacklist and
+                        part_name not in blacklist):
+                            unremovable_part_fpt += partition
+                            if part_name != "FTPR":
+                                extra_part_end = max(extra_part_end, part_end)
+                            print("NOT removed")
+                        else:
+                            mef.fill_range(part_start, part_end, b"\xff")
+                            print("removed")
 
-            print("Removing partition entries in FPT...")
-            mef.write_to(0x30, unremovable_part_fpt)
-            mef.write_to(0x14,
-                         pack("<I", len(unremovable_part_fpt) // 0x20))
+                print("Removing partition entries in FPT...")
+                mef.write_to(0x30, unremovable_part_fpt)
+                mef.write_to(0x14,
+                            pack("<I", len(unremovable_part_fpt) // 0x20))
 
-            mef.fill_range(0x30 + len(unremovable_part_fpt),
-                           0x30 + len(partitions), b"\xff")
+                mef.fill_range(0x30 + len(unremovable_part_fpt),
+                            0x30 + len(partitions), b"\xff")
 
-            if (not blacklist and "EFFS" not in whitelist) or \
-               "EFFS" in blacklist:
-                print("Removing EFFS presence flag...")
-                mef.seek(0x24)
-                flags = unpack("<I", mef.read(4))[0]
-                flags &= ~(0x00000001)
-                mef.write_to(0x24, pack("<I", flags))
+                if (not blacklist and "EFFS" not in whitelist) or \
+                "EFFS" in blacklist:
+                    print("Removing EFFS presence flag...")
+                    mef.seek(0x24)
+                    flags = unpack("<I", mef.read(4))[0]
+                    flags &= ~(0x00000001)
+                    mef.write_to(0x24, pack("<I", flags))
 
-            if gen == 3:
-                mef.seek(0x10)
-                header = bytearray(mef.read(0x20))
-                header[0x0b] = 0x00
-            else:
-                mef.seek(0)
-                header = bytearray(mef.read(0x30))
-                header[0x1b] = 0x00
-            checksum = (0x100 - sum(header) & 0xff) & 0xff
+                if gen == 3:
+                    mef.seek(0x10)
+                    header = bytearray(mef.read(0x20))
+                    header[0x0b] = 0x00
+                else:
+                    mef.seek(0)
+                    header = bytearray(mef.read(0x30))
+                    header[0x1b] = 0x00
+                checksum = (0x100 - sum(header) & 0xff) & 0xff
 
-            print("Correcting checksum (0x{:02x})...".format(checksum))
-            # The checksum is just the two's complement of the sum of the first
-            # 0x30 bytes in ME < 11 or bytes 0x10:0x30 in ME >= 11 (except for
-            # 0x1b, the checksum itself). In other words, the sum of those
-            # bytes must be always 0x00.
-            mef.write_to(0x1b, pack("B", checksum))
+                print("Correcting checksum (0x{:02x})...".format(checksum))
+                # The checksum is just the two's complement of the sum of the first
+                # 0x30 bytes in ME < 11 or bytes 0x10:0x30 in ME >= 11 (except for
+                # 0x1b, the checksum itself). In other words, the sum of those
+                # bytes must be always 0x00.
+                mef.write_to(0x1b, pack("B", checksum))
 
-            print("Reading FTPR modules list...")
-            if gen == 3:
-                end_addr, ftpr_offset = \
-                    check_and_remove_modules_gen3(mef, me_end,
-                                                  ftpr_offset, ftpr_length,
-                                                  min_ftpr_offset,
-                                                  args.relocate,
-                                                  args.keep_modules)
-            else:
-                end_addr, ftpr_offset = \
-                    check_and_remove_modules(mef, me_end, ftpr_offset,
-                                             min_ftpr_offset, args.relocate,
-                                             args.keep_modules)
+                print("Reading FTPR modules list...")
+                if gen == 3:
+                    end_addr, ftpr_offset = \
+                        check_and_remove_modules_gen3(mef, me_end,
+                                                    ftpr_offset, ftpr_length,
+                                                    min_ftpr_offset,
+                                                    args.relocate,
+                                                    args.keep_modules)
+                else:
+                    end_addr, ftpr_offset = \
+                        check_and_remove_modules(mef, me_end, ftpr_offset,
+                                                min_ftpr_offset, args.relocate,
+                                                args.keep_modules)
 
-            if end_addr > 0:
-                end_addr = max(end_addr, extra_part_end)
-                end_addr = (end_addr // 0x1000 + 1) * 0x1000
-                end_addr += spared_blocks * 0x1000
+                if end_addr > 0:
+                    end_addr = max(end_addr, extra_part_end)
+                    end_addr = (end_addr // 0x1000 + 1) * 0x1000
+                    end_addr += spared_blocks * 0x1000
 
-                print("The ME minimum size should be {0} bytes "
-                      "({0:#x} bytes)".format(end_addr))
+                    print("The ME minimum size should be {0} bytes "
+                        "({0:#x} bytes)".format(end_addr))
 
-                if me_start > 0:
-                    print("The ME region can be reduced up to:\n"
-                          " {:08x}:{:08x} me"
-                          .format(me_start, me_start + end_addr - 1))
-                elif args.truncate:
-                    print("Truncating file at {:#x}...".format(end_addr))
-                    f.truncate(end_addr)
+                    if me_start > 0:
+                        print("The ME region can be reduced up to:\n"
+                            " {:08x}:{:08x} me"
+                            .format(me_start, me_start + end_addr - 1))
+                    elif args.truncate:
+                        print("Truncating file at {:#x}...".format(end_addr))
+                        f.truncate(end_addr)
 
         if args.soft_disable or args.soft_disable_only:
             if gen == 3:
                 print("Setting the HAP bit in PCHSTRP0 to disable Intel ME...")
                 pchstrp0 |= (1 << 16)
                 fdf.write_to(fpsba, pack("<I", pchstrp0))
+            elif gen == 4:
+                print("Setting the HAP bit in PCHSTRP32 to disable Intel ME...")
+                pchstrp32 |= (1 << 16)
+                fdf.write_to(fpsba + 0x80, pack("<I", pchstrp32))
             else:
                 print("Setting the AltMeDisable bit in PCHSTRP10 to disable "
                       "Intel ME...")
