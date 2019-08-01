@@ -731,7 +731,8 @@ if __name__ == "__main__":
                   ("SET" if pchstrp0 & 1 << 16 else "NOT SET"))
 
         # Generation 1: wipe everything and disable the ME region
-        if gen == 1 and me_start < me_end and not args.check:
+        if gen == 1 and me_start < me_end and not args.check and not \
+           args.soft_disable_only:
             print("Disabling the ME region...")
             f.seek(frba + 0x8)
             f.write(pack("<I", 0x1fff))
