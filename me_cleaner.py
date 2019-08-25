@@ -153,7 +153,8 @@ def get_chunks_offsets(llut):
     return offsets
 
 
-def remove_modules(f, mod_headers, ftpr_offset, me_end):
+def remove_modules(f, mod_headers, ftpr_offset, me_end, modules_whitelist,
+                   modules_blacklist):
     comp_str = ("uncomp.", "Huffman", "LZMA")
     unremovable_huff_chunks = []
     chunks_offsets = []
@@ -177,6 +178,10 @@ def remove_modules(f, mod_headers, ftpr_offset, me_end):
             if name in unremovable_modules:
                 end_addr = max(end_addr, offset + size)
                 print("NOT removed, essential")
+            elif name in modules_whitelist or \
+                (modules_blacklist and name not in modules_blacklist):
+                    print("NOT removed, whitelisted")
+                    end_addr = max(end_addr, offset + size)
             else:
                 end = min(offset + size, me_end)
                 f.fill_range(offset, end, b"\xff")
@@ -346,7 +351,8 @@ def relocate_partition(f, me_end, partition_header_offset,
 
 
 def check_and_remove_modules(f, me_end, offset, min_offset,
-                             relocate, keep_modules):
+                             relocate, keep_modules, modules_whitelist,
+                             modules_blacklist):
 
     f.seek(offset + 0x20)
     num_modules = unpack("<I", f.read(4))[0]
@@ -370,11 +376,13 @@ def check_and_remove_modules(f, me_end, offset, min_offset,
             if args.keep_modules:
                 end_addr = offset + ftpr_length
             else:
-                end_addr = remove_modules(f, mod_headers, offset, me_end)
+                end_addr = remove_modules(f, mod_headers, offset, me_end,
+                                          modules_whitelist, modules_blacklist)
 
             if args.relocate:
                 new_offset = relocate_partition(f, me_end, 0x30, min_offset,
-                                                mod_headers)
+                                                mod_headers, modules_whitelist,
+                                                modules_blacklist)
                 end_addr += new_offset - offset
                 offset = new_offset
 
@@ -392,7 +400,8 @@ def check_and_remove_modules(f, me_end, offset, min_offset,
 
 def check_and_remove_modules_gen3(f, me_end, partition_offset,
                                   partition_length, min_offset, relocate,
-                                  keep_modules):
+                                  keep_modules, modules_whitelist,
+                                  modules_blacklist):
 
     comp_str = ("LZMA/uncomp.", "Huffman")
 
@@ -439,6 +448,10 @@ def check_and_remove_modules_gen3(f, me_end, partition_offset,
                 print("NOT removed, module metadata")
             elif any(name.startswith(m) for m in unremovable_modules_gen3):
                 print("NOT removed, essential")
+            elif any(name.startswith(m) for m in modules_whitelist) or \
+                (modules_blacklist and \
+                not any(name.startswith(m) for m in modules_blacklist)):
+                    print("NOT removed, whitelisted")
             else:
                 removed = True
                 f.fill_range(offset, min(end, me_end), b"\xff")
@@ -478,6 +491,7 @@ if __name__ == "__main__":
                                      "images")
     softdis = parser.add_mutually_exclusive_group()
     bw_list = parser.add_mutually_exclusive_group()
+    kr_list = parser.add_mutually_exclusive_group()
 
     parser.add_argument("-v", "--version", action="version",
                         version="%(prog)s 1.2")
@@ -503,8 +517,15 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--truncate", help="truncate the empty part of "
                         "the firmware (requires a separated ME/TXE image or "
                         "--extract-me)", action="store_true")
-    parser.add_argument("-k", "--keep-modules", help="don't remove the FTPR "
-                        "modules, even when possible", action="store_true")
+    kr_list.add_argument("-k", "--keep-modules", help="don't remove the FTPR "
+                         "modules, even when possible", action="store_true")
+    kr_list.add_argument("-K", "--modules-whitelist", help="Comma separated "
+                         "list of additional FTPR modules to keep in the "
+                         "final image.", metavar="modules_whitelist")
+    kr_list.add_argument("-R", "--modules-blacklist", help="Comma separated "
+                         "list of FTPR modules to remove from the final image. "
+                         "This option overrides the default removal list.",
+                         metavar="modules_blacklist")
     bw_list.add_argument("-w", "--whitelist", metavar="whitelist",
                          help="Comma separated list of additional partitions "
                          "to keep in the final image. This can be used to "
@@ -845,18 +866,30 @@ if __name__ == "__main__":
             mef.write_to(0x1b, pack("B", checksum))
 
             print("Reading FTPR modules list...")
+            modules_whitelist = []
+            modules_blacklist = []
+
+            if args.modules_blacklist:
+                modules_blacklist = args.modules_blacklist.split(",")
+            elif args.modules_whitelist:
+                modules_whitelist = args.modules_whitelist.split(",")
+
             if gen == 3:
                 end_addr, ftpr_offset = \
                     check_and_remove_modules_gen3(mef, me_end,
                                                   ftpr_offset, ftpr_length,
                                                   min_ftpr_offset,
                                                   args.relocate,
-                                                  args.keep_modules)
+                                                  args.keep_modules,
+                                                  modules_whitelist,
+                                                  modules_blacklist)
             else:
                 end_addr, ftpr_offset = \
                     check_and_remove_modules(mef, me_end, ftpr_offset,
                                              min_ftpr_offset, args.relocate,
-                                             args.keep_modules)
+                                             args.keep_modules,
+                                             modules_whitelist,
+                                             modules_blacklist)
 
             if end_addr > 0:
                 end_addr = max(end_addr, extra_part_end)
