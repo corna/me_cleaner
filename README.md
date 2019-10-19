@@ -47,7 +47,7 @@ it has been proven quite reliable on a great number of them.
 _me\_cleaner_ should handle all the steps necessary to the modification of an
 Intel ME firmware with the command:
 
-      $ python me_cleaner.py -S -O modified_image.bin original_dump.bin
+      $ python me_cleaner.py -S -O original_dump.bin modified_image.bin
 
 However, obtaining the original firmware and flashing back the modified one is
 usually not trivial, as the Intel ME firmware region is often non-writable from
