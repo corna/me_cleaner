@@ -116,6 +116,19 @@ class RegionFile:
         else:
             raise OutOfRegionException()
 
+    def cut_range(self, start, end):
+        if self.region_start + end <= self.region_end:
+            if start < end:
+                self.f.seek(0)
+                temp = self.f.read(self.region_start + start)
+                self.f.seek(self.region_start + end)
+                temp += self.f.read(-1)
+                self.f.truncate(0)
+                self.f.seek(0)
+                self.f.write(temp)
+        else:
+            raise OutOfRegionException()
+
     def save(self, filename, size):
         if self.region_start + size <= self.region_end:
             self.f.seek(self.region_start)
@@ -125,6 +138,13 @@ class RegionFile:
             return copyf
         else:
             raise OutOfRegionException()
+
+
+def align_8kbytes(size):
+    if size%8192 == 0:
+        return size
+    else:
+        return (size//8192+1)*8192
 
 
 def get_chunks_offsets(llut):
@@ -419,6 +439,10 @@ def check_and_remove_modules_gen3(f, me_end, partition_offset,
 
         modules.sort(key=lambda x: x[1])
 
+        if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate:
+            global me11_fptr_offset
+            me11_fptr_offset = 0
+
         for i in range(0, module_count):
             name = modules[i][0]
             offset = partition_offset + modules[i][1]
@@ -443,6 +467,11 @@ def check_and_remove_modules_gen3(f, me_end, partition_offset,
                 removed = True
                 f.fill_range(offset, min(end, me_end), b"\xff")
                 print("removed")
+                if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate:
+                    if me11_fptr_offset == 0:
+                        me11_fptr_offset = align_8kbytes(offset)
+                    global me11_fptr_end
+                    me11_fptr_end = min(end, me_end)
 
             if not removed:
                 end_data = max(end_data, end)
@@ -756,6 +785,23 @@ if __name__ == "__main__":
 
     if gen != 1 and not args.check:
         if not args.soft_disable_only and not me6_ignition:
+            print("Reading FTPR modules list...")
+            if gen == 3:
+                end_addr, ftpr_offset = \
+                    check_and_remove_modules_gen3(mef, me_end,
+                                                  ftpr_offset, ftpr_length,
+                                                  min_ftpr_offset,
+                                                  args.relocate,
+                                                  args.keep_modules)
+            else:
+                end_addr, ftpr_offset = \
+                    check_and_remove_modules(mef, me_end, ftpr_offset,
+                                             min_ftpr_offset, args.relocate,
+                                             args.keep_modules)
+
+            if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate:
+                mef.cut_range(me11_fptr_offset, me11_fptr_end)
+
             print("Reading partitions list...")
             unremovable_part_fpt = b""
             extra_part_end = 0
@@ -768,6 +814,12 @@ if __name__ == "__main__":
                 blacklist = args.blacklist.split(",")
             elif args.whitelist:
                 whitelist += args.whitelist.split(",")
+
+            if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate:
+                global ftup_end
+                global ftup_length
+                ftup_end = 0
+                ftup_length = 0
 
             for i in range(entries):
                 partition = partitions[i * 0x20:(i + 1) * 0x20]
@@ -788,6 +840,32 @@ if __name__ == "__main__":
 
                 part_end = part_start + part_length
 
+                if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate:
+                    if part_name == 'FTPR':
+                        part_length -= (me11_fptr_end - me11_fptr_offset)
+                        part_end -= (me11_fptr_end - me11_fptr_offset)
+                    if part_start > me11_fptr_offset:
+                        part_start -= (me11_fptr_end - me11_fptr_offset)
+                        part_end -= (me11_fptr_end - me11_fptr_offset)
+                    partition_new = partition[0x00:0x08] + part_start.to_bytes(4,'little') + part_length.to_bytes(4,'little') + partition[0x10:0x20]
+
+                if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate:
+                    if 'FTUP' in whitelist or (blacklist and 'FTUP' not in blacklist):
+                        pass
+                    else:
+                        FTUP_list = ['PSVN','NFTP','WCOD','LOCL']
+                        if part_name in FTUP_list:
+                            print(" {:<4} (0x{:08x} - 0x{:09x}, 0x{:08x} total bytes): "
+                                .format(part_name, part_start, part_end, part_length),
+                                end="")
+                            print("removed")
+                            continue
+                        else:
+                            if part_start >= ftup_end:
+                                part_start -= ftup_length
+                                part_end -= ftup_length
+                            partition_new = partition[0x00:0x08] + part_start.to_bytes(4,'little') + part_length.to_bytes(4,'little') + partition[0x10:0x20]
+
                 if flags & 0x7f == 2:
                     print(" {:<4} ({:^24}, 0x{:08x} total bytes): nothing to "
                           "remove"
@@ -803,12 +881,20 @@ if __name__ == "__main__":
                           end="")
                     if part_name in whitelist or (blacklist and
                        part_name not in blacklist):
-                        unremovable_part_fpt += partition
+                        if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate:
+                            unremovable_part_fpt += partition_new
+                        else:
+                            unremovable_part_fpt += partition
                         if part_name != "FTPR":
                             extra_part_end = max(extra_part_end, part_end)
                         print("NOT removed")
                     else:
-                        mef.fill_range(part_start, part_end, b"\xff")
+                        if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate and part_name == 'FTUP':
+                            mef.cut_range(part_start, part_end)
+                            ftup_end = part_end
+                            ftup_length = part_length
+                        else:
+                            mef.fill_range(part_start, part_end, b"\xff")
                         print("removed")
 
             print("Removing partition entries in FPT...")
@@ -844,24 +930,13 @@ if __name__ == "__main__":
             # bytes must be always 0x00.
             mef.write_to(0x1b, pack("B", checksum))
 
-            print("Reading FTPR modules list...")
-            if gen == 3:
-                end_addr, ftpr_offset = \
-                    check_and_remove_modules_gen3(mef, me_end,
-                                                  ftpr_offset, ftpr_length,
-                                                  min_ftpr_offset,
-                                                  args.relocate,
-                                                  args.keep_modules)
-            else:
-                end_addr, ftpr_offset = \
-                    check_and_remove_modules(mef, me_end, ftpr_offset,
-                                             min_ftpr_offset, args.relocate,
-                                             args.keep_modules)
-
             if end_addr > 0:
                 end_addr = max(end_addr, extra_part_end)
-                end_addr = (end_addr // 0x1000 + 1) * 0x1000
-                end_addr += spared_blocks * 0x1000
+                if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate:
+                    pass
+                else:
+                    end_addr = (end_addr // 0x1000 + 1) * 0x1000
+                    end_addr += spared_blocks * 0x1000
 
                 print("The ME minimum size should be {0} bytes "
                       "({0:#x} bytes)".format(end_addr))
@@ -958,4 +1033,3 @@ if __name__ == "__main__":
 
     if not args.check:
         print("Done! Good luck!")
-
