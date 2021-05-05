@@ -850,18 +850,21 @@ if __name__ == "__main__":
                     partition_new = partition[0x00:0x08] + part_start.to_bytes(4,'little') + part_length.to_bytes(4,'little') + partition[0x10:0x20]
 
                 if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate:
-                    FTUP_list = ['PSVN','NFTP','WCOD','LOCL']
-                    if part_name in FTUP_list:
-                        print(" {:<4} (0x{:08x} - 0x{:09x}, 0x{:08x} total bytes): "
-                            .format(part_name, part_start, part_end, part_length),
-                            end="")
-                        print("removed")
-                        continue
+                    if 'FTUP' in whitelist or (blacklist and 'FTUP' not in blacklist):
+                        pass
                     else:
-                        if part_start >= ftup_end:
-                            part_start -= ftup_length
-                            part_end -= ftup_length
-                        partition_new = partition[0x00:0x08] + part_start.to_bytes(4,'little') + part_length.to_bytes(4,'little') + partition[0x10:0x20]
+                        FTUP_list = ['PSVN','NFTP','WCOD','LOCL']
+                        if part_name in FTUP_list:
+                            print(" {:<4} (0x{:08x} - 0x{:09x}, 0x{:08x} total bytes): "
+                                .format(part_name, part_start, part_end, part_length),
+                                end="")
+                            print("removed")
+                            continue
+                        else:
+                            if part_start >= ftup_end:
+                                part_start -= ftup_length
+                                part_end -= ftup_length
+                            partition_new = partition[0x00:0x08] + part_start.to_bytes(4,'little') + part_length.to_bytes(4,'little') + partition[0x10:0x20]
 
                 if flags & 0x7f == 2:
                     print(" {:<4} ({:^24}, 0x{:08x} total bytes): nothing to "
@@ -886,12 +889,10 @@ if __name__ == "__main__":
                             extra_part_end = max(extra_part_end, part_end)
                         print("NOT removed")
                     else:
-                        if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate:
-                            if part_name == 'FTUP' and part_name not in whitelist:
-                                mef.cut_range(part_start, part_end)
-                                ftup_end = part_end
-                                ftup_length = part_length
-                                
+                        if pubkey_md5 == '986a78e481f185f7d54e4af06eb413f6' and args.truncate and part_name == 'FTUP':
+                            mef.cut_range(part_start, part_end)
+                            ftup_end = part_end
+                            ftup_length = part_length
                         else:
                             mef.fill_range(part_start, part_end, b"\xff")
                         print("removed")
