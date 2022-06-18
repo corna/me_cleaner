@@ -46,6 +46,7 @@ pubkeys_md5 = {
     "e8427c5691cf8b56bc5cdd82746957ed": ("ME",  ("9.5.x.x", "10.x.x.x")),
     "986a78e481f185f7d54e4af06eb413f6": ("ME",  ("11.x.x.x",)),
     "3efc26920b4bee901b624771c742887b": ("ME",  ("12.x.x.x",)),
+    "8e4f834644da2bef03039d69d41ecf02": ("ME",  ("14.x.x.x",)),
     "bda0b6bb8ca0bf0cac55ac4c4d55e0f2": ("TXE", ("1.x.x.x",)),
     "b726a2ab9cd59d4e62fe2bead7cf6997": ("TXE", ("1.x.x.x",)),
     "0633d7f951a3e7968ae7460861be9cfb": ("TXE", ("2.x.x.x",)),
@@ -692,6 +693,8 @@ if __name__ == "__main__":
 
         if version[0] == 12:
             gen = 4
+        elif version[0] == 14:
+            gen = 5
 
         print("ME/TXE firmware version {} (generation {})"
               .format('.'.join(str(i) for i in version), gen))
@@ -743,6 +746,11 @@ if __name__ == "__main__":
             print("The AltMeDisable bit is " +
                   ("SET" if pchstrp10 & 1 << 7 else "NOT SET"))
         elif gen == 4:
+            fdf.seek(fpsba + 0x70)
+            pchstrp28 = unpack("<I", fdf.read(4))[0]
+            print("The HAP bit is " +
+                  ("SET" if pchstrp28 & 1 << 16 else "NOT SET"))
+        elif gen == 5:
             fdf.seek(fpsba + 0x80)
             pchstrp32 = unpack("<I", fdf.read(4))[0]
             print("The HAP bit is " +
@@ -779,7 +787,7 @@ if __name__ == "__main__":
 
     if gen != 1 and not args.check:
         if not args.soft_disable_only and not me6_ignition:
-            if gen == 4:
+            if gen >= 4:
                 print("Module removal is not currently supported on IFWI firmware.")
             else:
                 print("Reading partitions list...")
@@ -906,6 +914,10 @@ if __name__ == "__main__":
                 pchstrp0 |= (1 << 16)
                 fdf.write_to(fpsba, pack("<I", pchstrp0))
             elif gen == 4:
+                print("Setting the HAP bit in PCHSTRP28 to disable Intel ME...")
+                pchstrp28 |= (1 << 16)
+                fdf.write_to(fpsba + 0x70, pack("<I", pchstrp28))
+            elif gen == 5:
                 print("Setting the HAP bit in PCHSTRP32 to disable Intel ME...")
                 pchstrp32 |= (1 << 16)
                 fdf.write_to(fpsba + 0x80, pack("<I", pchstrp32))
