@@ -48,6 +48,7 @@ pubkeys_md5 = {
     "3efc26920b4bee901b624771c742887b": ("ME",  ("12.x.x.x",)),
     "8e4f834644da2bef03039d69d41ecf02": ("ME",  ("14.x.x.x",)),
     "b29411f89bf20ed177d411c46e8ec185": ("ME",  ("15.x.x.x",)),
+    "5887caf9b677601ffb257cc98a13d2a9": ("ME",  ("16.x.x.x",)),
     "bda0b6bb8ca0bf0cac55ac4c4d55e0f2": ("TXE", ("1.x.x.x",)),
     "b726a2ab9cd59d4e62fe2bead7cf6997": ("TXE", ("1.x.x.x",)),
     "0633d7f951a3e7968ae7460861be9cfb": ("TXE", ("2.x.x.x",)),
@@ -667,8 +668,11 @@ if __name__ == "__main__":
             mef.seek(ftpr_offset + 0x10)
             data = mef.read(0x18)
 
-            ## Intel ME version 15 seems to have 4 more bytes ##
-            if data[0] >= 128:
+            ## Intel ME version >= 15 seems to have 4 more bytes ##
+            intel_me_15 = bytes([0xDA, 0x3D, 0xC8, 0xE5])
+            intel_me_16 = bytes([0x0D, 0xA2, 0xFA, 0xED])
+
+            if intel_me_15 in data or intel_me_16 in data:
                 mef.seek(ftpr_offset + 0x14)
 
             ftpr_mn2_offset = -1
@@ -704,6 +708,8 @@ if __name__ == "__main__":
             gen = 5
         elif version[0] == 15:
             gen = 6
+        elif version[0] == 16:
+            gen = 7
 
         print("ME/TXE firmware version {} (generation {})"
               .format('.'.join(str(i) for i in version), gen))
@@ -769,6 +775,11 @@ if __name__ == "__main__":
             pchstrp31 = unpack("<I", fdf.read(4))[0]
             print("The HAP bit is " +
                   ("SET" if pchstrp31 & 1 << 16 else "NOT SET"))
+        elif gen == 7:
+            fdf.seek(fpsba + 0xDC)
+            pchstrp55 = unpack("<I", fdf.read(4))[0]
+            print("The HAP bit is " +
+                  ("SET" if pchstrp55 & 1 << 16 else "NOT SET"))
         else:
             fdf.seek(fpsba)
             pchstrp0 = unpack("<I", fdf.read(4))[0]
@@ -939,6 +950,10 @@ if __name__ == "__main__":
                 print("Setting the HAP bit in PCHSTRP31 to disable Intel ME...")
                 pchstrp31 |= (1 << 16)
                 fdf.write_to(fpsba + 0x7C, pack("<I", pchstrp31))
+            elif gen == 7:
+                print("Setting the HAP bit in PCHSTRP55 to disable Intel ME...")
+                pchstrp55 |= (1 << 16)
+                fdf.write_to(fpsba + 0xDC, pack("<I", pchstrp55))
             else:
                 print("Setting the AltMeDisable bit in PCHSTRP10 to disable "
                       "Intel ME...")
