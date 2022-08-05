@@ -665,15 +665,17 @@ if __name__ == "__main__":
             gen = 3
             num_entries = unpack("<I", mef.read(4))[0]
 
-            mef.seek(ftpr_offset + 0x10)
-            data = mef.read(0x18)
+            mef.seek(ftpr_offset + 0x14)
+            data = mef.read(0x8)
 
             ## Intel ME version >= 15 seems to have 4 more bytes ##
-            intel_me_15 = bytes([0xDA, 0x3D, 0xC8, 0xE5])
-            intel_me_16 = bytes([0x0D, 0xA2, 0xFA, 0xED])
-
-            if intel_me_15 in data or intel_me_16 in data:
+            ## I think the 4 bytes have to do something with Intel ME version or date, ##
+            ## but not sure. ##
+            ## Check for 'FTPR.man' ##
+            if bytes([0x46, 0x54, 0x50, 0x52, 0x2E, 0x6D, 0x61, 0x6E]) == data:
                 mef.seek(ftpr_offset + 0x14)
+            else:
+                mef.seek(ftpr_offset + 0x10)
 
             ftpr_mn2_offset = -1
 
