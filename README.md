@@ -1,4 +1,4 @@
-# me\_cleaner [![Donation](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=B5HCXCLZVCVZ8)
+# me\_cleaner
 
 _me\_cleaner_ is a Python script able to modify an Intel ME firmware image with
 the final purpose of reducing its ability to interact with the system.
